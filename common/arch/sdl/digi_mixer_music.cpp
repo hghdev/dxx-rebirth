@@ -177,7 +177,8 @@ int mix_play_file(const char *filename, int loop, void (*const entry_hook_finish
 		const auto sep = PHYSFS_getDirSeparator();
 		const auto lensep = strlen(sep);
 		std::array<char, PATH_MAX> full_path;
-		snprintf(full_path.data(), PATH_MAX, "%s%s", PHYSFS_getUserDir(),
+		// snprintf(full_path.data(), PATH_MAX, "%s%s", PHYSFS_getUserDir(),
+		snprintf(full_path.data(), PATH_MAX, "%s%s", PHYSFS_getPrefDir("dxx-rebirth", "dxx-rebirth"),
 				 &filename[1 + (!strncmp(&filename[1], sep, lensep)
 			? lensep
 			: 0)]);

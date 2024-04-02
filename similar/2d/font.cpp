@@ -923,9 +923,10 @@ static std::unique_ptr<grs_font> gr_internal_init_font(const std::span<const cha
 	}
 
 	static_assert(sizeof(file_header) == 8, "file header size error");
-	if (PHYSFS_read(fontfile, &file_header, sizeof(file_header), 1) != 1 ||
-		memcmp(file_header.magic.data(), "PSFN", 4) ||
-		(file_header.datasize = INTEL_INT(file_header.datasize)) < GRS_FONT_SIZE)
+    const bool isInvalidHeaderInFontFile{(PHYSFS_readBytes(fontfile, &file_header, sizeof(file_header)) != sizeof(file_header)) ||
+		(memcmp(file_header.magic.data(), "PSFN", 4) != 0) ||
+		((file_header.datasize = INTEL_INT(file_header.datasize)) < GRS_FONT_SIZE)};
+	if (isInvalidHeaderInFontFile)
 	{
 		con_printf(CON_NORMAL, "Invalid header in font file %s", fontname.data());
 		return {};
@@ -944,7 +945,7 @@ static std::unique_ptr<grs_font> gr_internal_init_font(const std::span<const cha
 
 	auto ft_allocdata = std::make_unique<color_palette_index[]>(datasize + ft_chars_storage);
 	const auto font_data = &ft_allocdata[ft_chars_storage];
-	if (PHYSFS_read(fontfile, font_data, 1, datasize) != datasize)
+	if (PHYSFS_readBytes(fontfile, font_data, datasize) != datasize)
 	{
 		con_printf(CON_URGENT, "Insufficient data in font file %s", fontname.data());
 		return {};
@@ -1024,7 +1025,7 @@ static std::unique_ptr<grs_font> gr_internal_init_font(const std::span<const cha
 		 */
 		std::bitset<256> freq;
 
-		PHYSFS_read(fontfile,&palette[0],sizeof(palette[0]),palette.size());		//read the palette
+		PHYSFS_readBytes(fontfile,&palette[0],sizeof(palette[0]) * palette.size());		//read the palette
 
 		build_colormap_good(palette, colormap);
 

@@ -25,7 +25,7 @@ COPYRIGHT 1993-1998 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
  */
 
 //	Local include file for texture map library.
-
+#pragma once
 #include "maths.h"
 #include "pstypes.h"
 

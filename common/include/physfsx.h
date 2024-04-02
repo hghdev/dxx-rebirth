@@ -79,7 +79,8 @@ static inline PHYSFS_sint64 PHYSFSX_check_read(PHYSFS_File *file, V *v, const PH
 {
 	static_assert(std::is_standard_layout<V>::value && std::is_trivial<V>::value, "non-POD value read");
 	DXX_PHYSFS_CHECK_READ_SIZE_OBJECT_SIZE(S, C, v);
-	return PHYSFS_read(file, v, S, C);
+	// return PHYSFS_read(file, v, S, C);
+	return PHYSFS_readBytes(file, v, S * C);
 }
 
 template <typename V, std::size_t N>
@@ -106,7 +107,8 @@ static inline PHYSFS_sint64 PHYSFSX_check_write(PHYSFS_File *file, const V *v, c
 	if constexpr (std::is_integral<V>::value)
 		DXX_PHYSFS_CHECK_WRITE_ELEMENT_SIZE_CONSTANT(S,C);
 	DXX_PHYSFS_CHECK_WRITE_SIZE_OBJECT_SIZE(S, C, v);
-	return PHYSFS_write(file, v, S, C);
+	// return PHYSFS_write(file, v, S, C);
+	return PHYSFS_writeBytes(file, v, S * C);
 }
 
 template <typename V, std::size_t N>
@@ -145,29 +147,30 @@ enum class physfsx_endian : bool
 
 static inline int PHYSFSX_writeU8(PHYSFS_File *file, PHYSFS_uint8 val)
 {
-	return PHYSFS_write(file, &val, 1, 1);
+	return PHYSFS_writeBytes(file, &val, 1);
 }
 
 static inline int PHYSFSX_writeString(PHYSFS_File *file, const char *s)
 {
-	return PHYSFS_write(file, s, 1, strlen(s) + 1);
+	return PHYSFS_writeBytes(file, s, strlen(s) + 1);
 }
 
 static inline auto PHYSFSX_puts(PHYSFS_File *file, const std::span<const char> s)
 {
-	return PHYSFS_write(file, s.data(), 1, s.size());
+	return PHYSFS_writeBytes(file, s.data(), s.size());
 }
 
 static inline auto PHYSFSX_puts_literal(PHYSFS_File *file, const std::span<const char> s)
 {
-	return PHYSFS_write(file, s.data(), 1, s.size() - 1);
+	return PHYSFS_writeBytes(file, s.data(), s.size() - 1);
 }
 
 static inline int PHYSFSX_fgetc(PHYSFS_File *const fp)
 {
 	unsigned char c;
 
-	if (PHYSFS_read(fp, &c, 1, 1) != 1)
+	// if (PHYSFS_read(fp, &c, 1, 1) != 1)
+	if (PHYSFS_readBytes(fp, &c, 1) != 1)
 		return EOF;
 
 	return c;
@@ -420,7 +423,7 @@ static constexpr PHYSFSX_read_sequence_helper<fixang, PHYSFS_readSLE16, vms_angv
 template <std::size_t N>
 static auto PHYSFSX_skipBytes(PHYSFS_File *const fp)
 {
-	std::array<uint8_t, N> skip;
+	std::array<uint8_t, N> skip{};
 	return PHYSFS_readBytes(fp, std::data(skip), std::size(skip));
 }
 

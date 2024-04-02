@@ -82,7 +82,7 @@ using mission_candidate_search_path = std::array<char, PATH_MAX>;
 
 auto prepare_mission_list_count_dirbuf(const std::size_t immediate_directories)
 {
-	std::array<char, sizeof("DIR:99999; ")> dirbuf;
+	std::array<char, sizeof("DIR:99999; ")> dirbuf{};
 	/* Limit the count of directories to what can be formatted
 	 * successfully without truncation.  If a user has more than this
 	 * many directories, an empty string will be used instead of showing
@@ -717,7 +717,8 @@ static void add_missions_to_list(mission_list_type &mission_list, mission_candid
 
 		auto j = std::copy_n(i, il, rel_path);
 		const char *ext;
-		if (PHYSFS_isDirectory(path.data()))
+        PHYSFS_Stat stat{};
+		if (PHYSFS_stat(path.data(), &stat))
 		{
 			const auto null = std::prev(j);
 			*j = 0;

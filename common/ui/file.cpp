@@ -53,7 +53,8 @@ static PHYSFSX_counted_list file_getdirlist(const std::span<const char, PATH_MAX
 	if (!list)
 		return {};
 	const auto predicate = [&](char *i) -> bool {
-		if (path.copy_if(dlen, i) && PHYSFS_isDirectory(path))
+        PHYSFS_Stat stat{}; 
+		if (path.copy_if(dlen, i) && PHYSFS_stat(path.data(), &stat))
 			return false;
 		free(i);
 		return true;
@@ -187,8 +188,8 @@ window_event_result ui_file_browser::callback_handler(const d_event &event)
 		if (*filename && *p)
 			strncat(filename, "/", PATH_MAX - strlen(filename));
 		strncat(filename, p, PATH_MAX - strlen(filename));
-		
-		if (!PHYSFS_isDirectory(filename))
+        PHYSFS_Stat stat;
+		if (!PHYSFS_stat(filename, &stat))
 		{
 			if (RAIIPHYSFS_File{PHYSFS_openRead(filename)})
 			{
@@ -236,6 +237,7 @@ window_event_result ui_file_browser::callback_handler(const d_event &event)
 
 }
 
+#if DXX_USE_EDITOR
 int ui_get_filename(std::array<char, PATH_MAX> &filename, const char *const filespec, const char *const message)
 {
 	std::array<char, PATH_MAX>::iterator InputText;
@@ -304,6 +306,7 @@ int ui_get_filename(std::array<char, PATH_MAX> &filename, const char *const file
 	//key_flush();
 	return rval;
 }
+#endif
 
 int ui_get_file( char * filename, const char * Filespec  )
 {

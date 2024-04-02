@@ -1,3 +1,4 @@
+#pragma once
 #include "dxxsconf.h"
 
 #ifndef DXX_ENABLE_wrap_PHYSFS_read

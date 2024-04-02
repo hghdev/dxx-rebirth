@@ -113,11 +113,14 @@ bool PHYSFSX_init(int argc, char *argv[])
 #else
 #define base_dir PHYSFS_getBaseDir()
 #endif
-	
-	if (!PHYSFS_init(argv[0]))
-		Error("Failed to init PhysFS: %s", PHYSFS_getLastError());
-	PHYSFS_permitSymbolicLinks(1);
-	
+
+    if (!PHYSFS_init(argv[0]))
+    {
+        PHYSFS_ErrorCode ec = PHYSFS_getLastErrorCode();
+        Error("Failed to init PhysFS: %s", PHYSFS_getErrorByCode(ec));
+    }
+    PHYSFS_permitSymbolicLinks(1);
+
 #ifdef macintosh
 	strcpy(base_dir, PHYSFS_getBaseDir());
 	if (strstr(base_dir, ".app:Contents:MacOSClassic"))	// the Mac OS 9 program is still in the .app bundle
@@ -159,7 +162,7 @@ bool PHYSFSX_init(int argc, char *argv[])
 	
 	if (path[0] == '~') // yes, this tilde can be put before non-unix paths.
 	{
-		const char *home = PHYSFS_getUserDir();
+		const char *home = PHYSFS_getPrefDir("dxx-rebirth", "dxx-rebirth");
 		path++;
 		// prepend home to the path
 		if (*path == *PHYSFS_getDirSeparator())
@@ -214,10 +217,13 @@ bool PHYSFSX_init(int argc, char *argv[])
 	if (!PHYSFS_getWriteDir())
 	{
 		PHYSFS_setWriteDir(base_dir);
-		if (!(writedir = PHYSFS_getWriteDir()))
-			Error("can't set write dir: %s\n", PHYSFS_getLastError());
-		PHYSFS_mount(writedir, nullptr, 0);
-	}
+        if (!(writedir = PHYSFS_getWriteDir()))
+        {
+            PHYSFS_ErrorCode ec = PHYSFS_getLastErrorCode();
+            Error("can't set write dir: %s\n", PHYSFS_getErrorByCode(ec));
+        }
+        PHYSFS_mount(writedir, nullptr, 0);
+    }
 	
 	//tell PHYSFS where hogdir is
 	if (!CGameArg.SysHogDir.empty())
@@ -344,7 +350,10 @@ void PHYSFSX_removeRelFromSearchPath(const char *relname)
 	if (r)
 		con_printf(CON_DEBUG, "PHYSFS: unmap canonical directory \"%s\" (relative name \"%s\")", pathname.data(), relname);
 	else
-		con_printf(CON_VERBOSE, "PHYSFS: failed to unmap canonical directory \"%s\" (relative name \"%s\"): \"%s\"", pathname.data(), relname, PHYSFS_getLastError());
+	{
+        PHYSFS_ErrorCode ec = PHYSFS_getLastErrorCode();
+        con_printf(CON_VERBOSE, "PHYSFS: failed to unmap canonical directory \"%s\" (relative name \"%s\"): \"%s\"", pathname.data(), relname, PHYSFS_getErrorByCode(ec));
+    }
 }
 
 int PHYSFSX_fsize(const char *hogname)

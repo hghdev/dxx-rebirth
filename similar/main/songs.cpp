@@ -559,6 +559,11 @@ int songs_play_file(const char *filename, int repeat, void (*hook_finished_track
 namespace dsx {
 int songs_play_song( int songnum, int repeat )
 {
+#if 1
+    (void)songnum;
+    (void)repeat;
+    return 0;
+#else
 	songs_init();
 	if (!Songs_initialized)
 		return 0;
@@ -658,6 +663,7 @@ int songs_play_song( int songnum, int repeat )
 	}
 
 	return Song_playing;
+#endif
 }
 }
 

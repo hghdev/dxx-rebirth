@@ -2242,7 +2242,8 @@ static void list_dir_el(void *context, const char *, const char *fname)
 	const char *r = PHYSFS_getRealDir(fname);
 	if (!r)
 		r = "";
-	if (!strcmp(r, c->path.data()) && (PHYSFS_isDirectory(fname) || PHYSFSX_checkMatchingExtension(fname, c->ext_range))
+    PHYSFS_Stat stat{}; 
+	if (!strcmp(r, c->path.data()) && (PHYSFS_stat(fname, &stat) || PHYSFSX_checkMatchingExtension(fname, c->ext_range))
 #if defined(__APPLE__) && defined(__MACH__)
 		&& d_stricmp(fname, "Volumes")	// this messes things up, use '..' instead
 #endif
@@ -2356,7 +2357,8 @@ window_event_result browser::callback_handler(const d_event &event, window_event
 					assert(end_insert_item == std::next(newpath.begin(), total_used_after_insertion));
 				}
 			}
-			if ((citem == 0) || PHYSFS_isDirectory(list[citem]))
+            PHYSFS_Stat stat;
+			if ((citem == 0) || PHYSFS_stat(list[citem], &stat))
 			{
 				// If it fails, stay in this one
 				return select_file_recursive(title, newpath, ext_range, select_dir, userdata) ? window_event_result::close : window_event_result::handled;

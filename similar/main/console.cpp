@@ -235,7 +235,7 @@ static void con_print_file(const char *const buffer)
 		if (const auto fp = gamelog_fp.get())
 #endif
 		{
-			PHYSFS_write(fp, buf, 1, len);
+			PHYSFS_writeBytes(fp, buf, 1 * len);
 		}
 #undef DXX_LF
 #undef DXX_CONSOLE_TIME_ARG_MSEC

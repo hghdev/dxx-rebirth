@@ -245,7 +245,8 @@ void jukebox_load()
 		const auto p = cfgpath.data();
 		RAIIPHYSFS_LiteralMount new_path;
 		// Read directory using PhysicsFS
-		if (PHYSFS_isDirectory(p))	// find files in relative directory
+        PHYSFS_Stat stat{}; 
+		if (PHYSFS_stat(p, &stat))	// find files in relative directory
 			JukeboxSongs.list.reset(PHYSFSX_findFiles(p, jukebox_exts));
 		else
 		{

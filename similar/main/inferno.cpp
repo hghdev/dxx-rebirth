@@ -781,6 +781,7 @@ static int main(int argc, char *argv[])
 
 int main(int argc, char *argv[])
 {
+    const std::vector<std::string> args(argv, argv + argc);
 	mem_init();
 #if DXX_WORDS_NEED_ALIGNMENT
 	prctl(PR_SET_UNALIGN, PR_UNALIGN_NOPRINT, 0, 0, 0);

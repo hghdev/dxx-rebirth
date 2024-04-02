@@ -282,7 +282,7 @@ static void my_extract_shortpos(object_base &objp, const shortpos *const spp)
 static int _newdemo_read( void *buffer, int elsize, int nelem )
 {
 	int num_read;
-	num_read = (PHYSFS_read)(infile, buffer, elsize, nelem);
+	num_read = (PHYSFS_readBytes)(infile, buffer, elsize * nelem);
 	if (num_read < nelem || PHYSFS_eof(infile))
 		nd_playback_v_bad_read = -1;
 
@@ -325,7 +325,7 @@ static int _newdemo_write(const void *buffer, int elsize, int nelem )
 	nd_record_v_framebytes_written += total_size;
 	Newdemo_num_written += total_size;
 	Assert(outfile);
-	num_written = (PHYSFS_write)(outfile, buffer, elsize, nelem);
+	num_written = (PHYSFS_writeBytes)(outfile, buffer, elsize * nelem);
 
 	if (likely(num_written == nelem))
 		return num_written;
@@ -1050,7 +1050,7 @@ static void nd_rdt(char (&buf)[7])
 
 static void nd_rbe()
 {
-	char buf[7]{ND_EVENT_PALETTE_EFFECT, 0x80};
+	char buf[7]{ND_EVENT_PALETTE_EFFECT, static_cast<char>(0x80)};
 	newdemo_write(buf, 1, sizeof(buf));
 	++buf[2];
 	nd_rdt(buf);
@@ -4400,8 +4400,9 @@ int newdemo_swap_endian(const char *filename)
 
 read_error:
 	{
+        PHYSFS_ErrorCode ec = PHYSFS_getLastErrorCode();
 		nm_messagebox(menu_title{nullptr}, {TXT_OK}, complete ? "Demo %s converted%s" : "Error converting demo\n%s\n%s", filename,
-					  complete ? "" : (nd_playback_v_at_eof ? TXT_DEMO_CORRUPT : PHYSFS_getLastError()));
+					  complete ? "" : (nd_playback_v_at_eof ? TXT_DEMO_CORRUPT : PHYSFS_getErrorByCode(ec)));
 	}
 
 	return nd_playback_v_at_eof;
