@@ -1058,6 +1058,8 @@ static void nd_rbe()
 #define DXX_RBE(A)	\
 	extern const char g_descent_##A[];	\
 	nd_record_meta(buf, g_descent_##A);
+// FIXME
+#if 0
 	DXX_RBE(CPPFLAGS);
 	DXX_RBE(CXX);
 	DXX_RBE(CXXFLAGS);
@@ -1068,6 +1070,7 @@ static void nd_rbe()
 	DXX_RBE(git_diffstat);
 	DXX_RBE(git_status);
 	DXX_RBE(version);
+#endif
 	std::fill_n(&buf[1], sizeof(buf) - 1, 0);
 	newdemo_write(buf, 1, sizeof(buf));
 }
