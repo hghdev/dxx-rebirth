@@ -1055,6 +1055,8 @@ static void nd_rbe()
 	++buf[2];
 	nd_rdt(buf);
 	++buf[2];
+// FIXME: This is not working for some reason
+#if 0
 #define DXX_RBE(A)	\
 	extern const char g_descent_##A[];	\
 	nd_record_meta(buf, g_descent_##A);
@@ -1068,6 +1070,7 @@ static void nd_rbe()
 	DXX_RBE(git_diffstat);
 	DXX_RBE(git_status);
 	DXX_RBE(version);
+#endif
 	std::fill_n(&buf[1], sizeof(buf) - 1, 0);
 	newdemo_write(buf, 1, sizeof(buf));
 }
