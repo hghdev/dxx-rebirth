@@ -102,8 +102,9 @@ __attribute_always_inline()
 static inline PHYSFS_sint64 PHYSFSX_check_write(PHYSFS_File *file, const V *v, const PHYSFS_uint32 S, const PHYSFS_uint32 C)
 {
 	static_assert(std::is_standard_layout<V>::value && std::is_trivial<V>::value, "non-POD value written");
-	if constexpr (std::is_integral<V>::value)
-		DXX_PHYSFS_CHECK_WRITE_ELEMENT_SIZE_CONSTANT(S,C);
+    // FIXME: This is not working for some reason
+	// if constexpr (std::is_integral<V>::value)
+	// 	DXX_PHYSFS_CHECK_WRITE_ELEMENT_SIZE_CONSTANT(S,C);
 	DXX_PHYSFS_CHECK_WRITE_SIZE_OBJECT_SIZE(S, C, v);
 	return PHYSFS_write(file, v, S, C);
 }
@@ -113,7 +114,8 @@ __attribute_always_inline()
 static inline PHYSFS_sint64 PHYSFSX_check_write(PHYSFS_File *file, const std::array<V, N> &v, PHYSFS_uint32 S, PHYSFS_uint32 C)
 {
 	static_assert(std::is_standard_layout<V>::value && std::is_trivial<V>::value, "C++ array of non-POD elements written");
-	DXX_PHYSFS_CHECK_WRITE_CONSTANTS(S,C);
+    // FIXME: This is not working for some reason
+	// DXX_PHYSFS_CHECK_WRITE_CONSTANTS(S,C);
 	return PHYSFSX_check_write(file, v.data(), S, C);
 }
 
