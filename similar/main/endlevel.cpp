@@ -748,7 +748,7 @@ window_event_result start_endlevel_sequence()
 		multi_send_endlevel_start(multi_endlevel_type::normal);
 		multi::dispatch->do_protocol_frame(1, 1);
 	}
-	songs_play_song( SONG_ENDLEVEL, 0 );
+	songs_play_song(song_number::endlevel, 0);
 
 	Endlevel_sequence = EL_FLYTHROUGH;
 
@@ -929,7 +929,7 @@ window_event_result do_endlevel_frame(const d_level_shared_robot_info_state &Lev
 #endif
 				{
 
-					//songs_play_song( SONG_ENDLEVEL, 0 );
+					//songs_play_song(song_number::endlevel, 0);
 
 					Endlevel_sequence = EL_LOOKBACK;
 
@@ -1322,7 +1322,7 @@ try_again:
 		Error("Error converting filename <%s> for endlevel data\n",static_cast<const char *>(filename));
 #endif
 
-	auto ifile = PHYSFSX_openReadBuffered(filename).first;
+	auto ifile{PHYSFSX_openReadBuffered_updateCase(filename.data()).first};
 
 	if (!ifile) {
 
@@ -1331,7 +1331,7 @@ try_again:
 			!strcmp(filename, Current_mission->ending_text_filename))
                     return;	// Don't want to interpret the briefing as an end level sequence!
 
-		ifile = PHYSFSX_openReadBuffered(filename).first;
+		ifile = PHYSFSX_openReadBuffered_updateCase(filename.data()).first;
 
 		if (!ifile) {
 			if (level_num==1) {
@@ -1376,11 +1376,10 @@ try_again:
 		switch (var) {
 
 			case 0: {						//ground terrain
-				int iff_error;
 				palette_array_t pal;
 				terrain_bm_instance.reset();
-				iff_error = iff_read_bitmap(p, terrain_bm_instance, &pal);
-				if (iff_error != IFF_NO_ERROR) {
+				if (const auto iff_error{iff_read_bitmap(p, terrain_bm_instance, &pal)}; iff_error != iff_status_code::no_error)
+				{
 					con_printf(CON_DEBUG, "Can't load exit terrain from file %s: IFF error: %s",
                                                 p, iff_errormsg(iff_error));
 					endlevel_data_loaded = 0; // won't be able to play endlevel sequence
@@ -1408,11 +1407,10 @@ try_again:
 				break;
 
 			case 4: {						//planet bitmap
-				int iff_error;
 				palette_array_t pal;
 				satellite_bm_instance.reset();
-				iff_error = iff_read_bitmap(p, satellite_bm_instance, &pal);
-				if (iff_error != IFF_NO_ERROR) {
+				if (const auto iff_error{iff_read_bitmap(p, satellite_bm_instance, &pal)}; iff_error != iff_status_code::no_error)
+				{
 					con_printf(CON_DEBUG, "Can't load exit satellite from file %s: IFF error: %s",
                                                 p, iff_errormsg(iff_error));
 					endlevel_data_loaded = 0; // won't be able to play endlevel sequence

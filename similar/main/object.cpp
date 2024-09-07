@@ -558,10 +558,11 @@ static void draw_polygon_object(grs_canvas &canvas, const d_level_unique_light_s
 
 			if (is_weapon_with_inner_model)
 			{
-#if !DXX_USE_OGL // in software rendering must draw inner model last
+				if constexpr (!DXX_USE_OGL) // in software rendering must draw inner model last
+				{
 				gr_settransblend(canvas, GR_FADE_OFF, gr_blend::additive_a);
 				if (draw_simple_model)
-					draw_polygon_model(Polygon_models, canvas, tmap_drawer_ptr, obj->pos,
+					draw_polygon_model(Polygon_models, canvas, draw_tmap, obj->pos,
 							   obj->orient,
 							   obj->rtype.pobj_info.anim_angles,
 							   Weapon_info[obj->id].model_num_inner,
@@ -569,7 +570,7 @@ static void draw_polygon_object(grs_canvas &canvas, const d_level_unique_light_s
 							   light,
 							   &engine_glow_value,
 							   alt_textures);
-#endif
+				}
 				gr_settransblend(canvas, GR_FADE_OFF, gr_blend::normal);
 			}
 			return;
@@ -685,7 +686,7 @@ static void set_robot_location_info(object &objp)
 		//the code below to check for object near the center of the screen
 		//completely ignores z, which may not be good
 
-		if ((abs(temp.p3_x) < F1_0*4) && (abs(temp.p3_y) < F1_0*4)) {
+		if ((abs(temp.p3_vec.x) < F1_0*4) && (abs(temp.p3_vec.y) < F1_0*4)) {
 			objp.ctype.ai_info.danger_laser_num = Player_fired_laser_this_frame;
 			objp.ctype.ai_info.danger_laser_signature = vcobjptr(Player_fired_laser_this_frame)->signature;
 		}
@@ -1637,7 +1638,7 @@ static void start_player_death_sequence(object &player)
 	{
 #if defined(DXX_BUILD_DESCENT_II)
 		// If Hoard, increase number of orbs by 1. Only if you haven't killed yourself. This prevents cheating
-		if (game_mode_hoard())
+		if (game_mode_hoard(Game_mode))
 		{
 			auto &player_info = player.ctype.player_info;
 			auto &proximity = player_info.hoard.orbs;
@@ -1858,9 +1859,9 @@ static window_event_result object_move_one(const d_level_shared_robot_info_state
 	if ((obj->type==OBJ_PLAYER) && (Player_num==get_player_id(obj)))	{
 		const auto &&segp = vmsegptr(obj->segnum);
 #if defined(DXX_BUILD_DESCENT_II)
-		if (game_mode_capture_flag())
+		if (game_mode_capture_flag(Game_mode))
 			fuelcen_check_for_goal(obj, segp);
-		else if (game_mode_hoard())
+		else if (game_mode_hoard(Game_mode))
 			fuelcen_check_for_hoard_goal(obj, segp);
 #endif
 

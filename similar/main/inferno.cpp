@@ -465,14 +465,11 @@ static int main(int argc, char *argv[])
 		return(0);
 
 #if defined(DXX_BUILD_DESCENT_I)
-	static char relname_descent_hog[]{"descent.hog"};
-	const auto descent_hog = make_PHYSFSX_ComputedPathMount(relname_descent_hog, physfs_search_path::append);
+	const auto descent_hog = make_PHYSFSX_ComputedPathMount(descent_hog_basename, physfs_search_path::append);
 #define DXX_NAME_NUMBER	"1"
 #define DXX_HOGFILE_NAMES	"descent.hog"
 #elif defined(DXX_BUILD_DESCENT_II)
-	static char relname_descent2_hog[]{"descent2.hog"};
-	static char relname_d2demo_hog[]{"d2demo.hog"};
-	const auto descent_hog = make_PHYSFSX_ComputedPathMount(relname_descent2_hog, relname_d2demo_hog, physfs_search_path::append);
+	const auto descent_hog = make_PHYSFSX_ComputedPathMount(descent2_hog_basename, d2demo_hog_basename, physfs_search_path::append);
 #define DXX_NAME_NUMBER	"2"
 #define DXX_HOGFILE_NAMES	"descent2.hog or d2demo.hog"
 #endif
@@ -511,7 +508,7 @@ static int main(int argc, char *argv[])
 	}
 
 #if defined(DXX_BUILD_DESCENT_I)
-	switch (descent_hog_size{PHYSFSX_fsize("descent.hog")})
+	switch (descent_hog_size{PHYSFSX_fsize(descent_hog_basename)})
 	{
 		case descent_hog_size::mac_shareware:
 		case descent_hog_size::mac_retail:
@@ -538,7 +535,8 @@ static int main(int argc, char *argv[])
 	}
 	con_puts(CON_NORMAL, "Copyright (C) 2005-2013 Christian Beckhaeuser, 2013-2017 Kp");
 #elif defined(DXX_BUILD_DESCENT_II)
-	con_printf(CON_NORMAL, "%s%s  %s", DESCENT_VERSION, PHYSFSX_exists(MISSION_DIR "d2x.hog",1) ? "  Vertigo Enhanced" : "", g_descent_build_datetime); // D2X version
+	static char d2x_hog_basename[]{MISSION_DIR "d2x.hog"};
+	con_printf(CON_NORMAL, "%s%s  %s", DESCENT_VERSION, PHYSFSX_exists_ignorecase(d2x_hog_basename) ? "  Vertigo Enhanced" : "", g_descent_build_datetime); // D2X version
 	con_puts(CON_NORMAL, "This is a MODIFIED version of Descent 2, based on " BASED_VERSION ".");
 	{
 		const auto &&m = TXT_COPYRIGHT;
@@ -596,7 +594,7 @@ static int main(int argc, char *argv[])
 		}
 	}
 	
-	ReadConfigFile();
+	ReadConfigFile(CGameCfg, GameCfg);
 
 	PHYSFSX_addArchiveContent();
 
@@ -626,7 +624,7 @@ static int main(int argc, char *argv[])
 	// Load the palette stuff. Returns non-zero if error.
 	con_puts(CON_DEBUG, "Initializing palette system...");
 #if defined(DXX_BUILD_DESCENT_I)
-	gr_use_palette_table( "PALETTE.256" );
+	gr_use_palette_table("palette.256");
 #elif defined(DXX_BUILD_DESCENT_II)
 	gr_use_palette_table(D2_DEFAULT_PALETTE );
 #endif
@@ -648,7 +646,7 @@ static int main(int argc, char *argv[])
 	show_titles();
 
 	set_screen_mode(SCREEN_MENU);
-#ifdef DEBUG_MEMORY_ALLOCATIONS
+#if DXX_USE_DEBUG_MEMORY_ALLOCATOR
 	/* Memdebug runs before global destructors, so it incorrectly
 	 * reports as leaked any allocations that would be freed by a global
 	 * destructor.  This local will force the newmenu globals to be
@@ -724,12 +722,12 @@ static int main(int argc, char *argv[])
 				strcpy(&filename[j], ".plr");
 				j += 4;
 			}
-			if(PHYSFSX_exists(filename,0))
+			if (PHYSFS_exists(filename))
 			{
 				InterfaceUniqueState.PilotName.copy(std::span<const char>(b, std::distance(b, &filename[j - 4])));
 				InterfaceUniqueState.update_window_title();
 				read_player_file();
-				WriteConfigFile();
+				WriteConfigFile(CGameCfg, GameCfg);
 			}
 		}
 	}
@@ -762,7 +760,7 @@ static int main(int argc, char *argv[])
 			window_close(wind);
 	}
 
-	WriteConfigFile();
+	WriteConfigFile(CGameCfg, GameCfg);
 
 	con_puts(CON_DEBUG, "Cleanup...");
 	close_game();

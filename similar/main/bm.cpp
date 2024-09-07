@@ -534,7 +534,7 @@ void load_robot_replacements(const d_fname &level_name)
 		return;
 	}
 
-	auto fp = PHYSFSX_openReadBuffered(ifile_name.data()).first;
+	auto fp{PHYSFSX_openReadBuffered_updateCase(ifile_name.data()).first};
 	if (!fp)		//no robot replacement file
 		return;
 
@@ -621,11 +621,8 @@ namespace {
 static grs_bitmap *read_extra_bitmap_iff(const char * filename, grs_bitmap &n)
 {
 	palette_array_t newpal;
-	int iff_error;		//reference parm to avoid warning message
-
-	//MALLOC( new, grs_bitmap, 1 );
-	iff_error = iff_read_bitmap(filename, n, &newpal);
-	if (iff_error != IFF_NO_ERROR)		{
+	if (const auto iff_error{iff_read_bitmap(filename, n, &newpal)}; iff_error != iff_status_code::no_error)
+	{
 		con_printf(CON_DEBUG, "Error loading exit model bitmap <%s> - IFF error: %s", filename, iff_errormsg(iff_error));
 		return nullptr;
 	}
@@ -741,7 +738,8 @@ int load_exit_models()
 		return 1;
 	}
 
-	if (auto exit_hamfile = PHYSFSX_openReadBuffered("exit.ham").first)
+	static char exit_ham_basename[]{"exit.ham"};
+	if (auto exit_hamfile{PHYSFSX_openReadBuffered(exit_ham_basename).first})
 	{
 		const auto em = static_cast<polygon_model_index>(N_polygon_models);
 		const auto dem = static_cast<polygon_model_index>(N_polygon_models + 1);
@@ -757,8 +755,9 @@ int load_exit_models()
 
 		polygon_model_data_read(&pem, exit_hamfile);
 		polygon_model_data_read(&pdem, exit_hamfile);
-	} else if (PHYSFSX_exists("exit01.pof",1) && PHYSFSX_exists("exit01d.pof",1)) {
-
+	}
+	else if (PHYSFS_exists("exit01.pof") && PHYSFS_exists("exit01d.pof"))
+	{
 		exit_modelnum = load_polygon_model("exit01.pof", 3, start_num, NULL);
 		destroyed_exit_modelnum = load_polygon_model("exit01d.pof", 3, start_num + 3, NULL);
 
@@ -767,27 +766,26 @@ int load_exit_models()
 		ogl_cache_polymodel_textures(destroyed_exit_modelnum);
 #endif
 	}
-	else if ((exit_hamfile = PHYSFSX_openReadBuffered(D1_PIGFILE).first))
+	else if ((exit_hamfile = PHYSFSX_openReadBuffered_updateCase(descent_pig_basename).first))
 	{
 		int offset, offset2;
-		int hamsize;
-		hamsize = PHYSFS_fileLength(exit_hamfile);
-		switch (hamsize) { //total hack for loading models
-		case D1_PIGSIZE:
+		switch (descent1_pig_size{PHYSFS_fileLength(exit_hamfile)})
+		{ //total hack for loading models
+			case descent1_pig_size::d1_pigsize:
 			offset = 91848;     /* and 92582  */
 			offset2 = 383390;   /* and 394022 */
 			break;
 		default:
-		case D1_SHARE_BIG_PIGSIZE:
-		case D1_SHARE_10_PIGSIZE:
-		case D1_SHARE_PIGSIZE:
-		case D1_10_BIG_PIGSIZE:
-		case D1_10_PIGSIZE:
+			case descent1_pig_size::d1_share_big_pigsize:
+			case descent1_pig_size::d1_share_10_pigsize:
+			case descent1_pig_size::d1_share_pigsize:
+			case descent1_pig_size::d1_10_big_pigsize:
+			case descent1_pig_size::d1_10_pigsize:
 			Int3();             /* exit models should be in .pofs */
 			[[fallthrough]];
-		case D1_OEM_PIGSIZE:
-		case D1_MAC_PIGSIZE:
-		case D1_MAC_SHARE_PIGSIZE:
+			case descent1_pig_size::d1_oem_pigsize:
+			case descent1_pig_size::d1_mac_pigsize:
+			case descent1_pig_size::d1_mac_share_pigsize:
 			// unload the textures that we already loaded
 			bm_unload_last_objbitmaps(N_ObjBitmaps - start_num);
 			con_puts(CON_NORMAL, "Can't load exit models!");

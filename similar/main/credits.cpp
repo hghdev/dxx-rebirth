@@ -64,9 +64,9 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #elif defined(DXX_BUILD_DESCENT_II)
 #define MAKE_CREDITS_PAIR(F)	std::span<const char>(F ".tex", sizeof(F) + 1)
 #define CREDITS_FILE    		(	\
-	PHYSFSX_exists("mcredits.tex", 1)	\
+	PHYSFS_exists("mcredits.tex")	\
 		? MAKE_CREDITS_PAIR("mcredits")	\
-		: PHYSFSX_exists("ocredits.tex", 1)	\
+		: PHYSFS_exists("ocredits.tex")	\
 			? MAKE_CREDITS_PAIR("ocredits") 	\
 			: MAKE_CREDITS_PAIR("credits")	\
 	)
@@ -162,7 +162,7 @@ window_event_result credits_window::event_handler(const d_event &event)
 						if (have_bin_file) // is this a binary tbl file
 							decode_text_line (buffer[buffer_line]);
 #if defined(DXX_BUILD_DESCENT_I)
-						p = strchr(&buffer[buffer_line][0],'\n');
+						p = strchr(&buffer[buffer_line][0u],'\n');
 						if (p) *p = '\0';
 #elif defined(DXX_BUILD_DESCENT_II)
 						p = buffer[buffer_line];
@@ -182,7 +182,7 @@ window_event_result credits_window::event_handler(const d_event &event)
 #endif	
 					} else	{
 						//fseek( file, 0, SEEK_SET);
-						buffer[buffer_line][0] = 0;
+						buffer[buffer_line][0u] = 0;
 						done++;
 					}
 				} while (extra_inc--);
@@ -243,7 +243,7 @@ window_event_result credits_window::event_handler(const d_event &event)
 
 		case event_type::window_close:
 			songs_set_volume(CGameCfg.MusicVolume);
-			songs_play_song( SONG_TITLE, 1 );
+			songs_play_song(song_number::title, 1);
 			break;
 		default:
 			break;
@@ -262,7 +262,7 @@ static void credits_show_common(RAIIPHYSFS_File file, const int have_bin_file)
 #endif
 
 	pcx_read_bitmap_or_default(STARS_BACKGROUND, cr->backdrop, backdrop_palette);
-	songs_play_song( SONG_CREDITS, 1 );
+	songs_play_song(song_number::credits, 1);
 
 	gr_remap_bitmap_good(cr->backdrop,backdrop_palette, -1, -1);
 
@@ -290,7 +290,7 @@ void credits_show()
 	{
 		char nfile[32];
 		snprintf(nfile, sizeof(nfile), "%.*sxb", static_cast<int>(credits_file.size()), credits_file.data());
-		auto &&[file2, physfserr2] = PHYSFSX_openReadBuffered(nfile);
+		auto &&[file2, physfserr2] = PHYSFSX_openReadBuffered_updateCase(nfile);
 		if (!file2)
 			Error("Failed to open CREDITS.TEX and CREDITS.TXB file: \"%s\", \"%s\"\n", PHYSFS_getErrorByCode(physfserr), PHYSFS_getErrorByCode(physfserr2));
 		file = std::move(file2);

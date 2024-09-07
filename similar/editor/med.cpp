@@ -304,7 +304,8 @@ static void medkey_init()
 
 	KeyFunction = {};
 
-	if (auto keyfile = PHYSFSX_openReadBuffered("GLOBAL.KEY").first)
+	static char global_key_basename[]{"GLOBAL.KEY"};
+	if (auto keyfile{PHYSFSX_openReadBuffered(global_key_basename).first})
 	{
 		for (PHYSFSX_gets_line_t<200> line_buffer; PHYSFSX_fgets(line_buffer, keyfile);)
 		{
@@ -596,11 +597,11 @@ int SetPlayerFromCursegMinusOne()
 	for (auto &&[corner, vert] : zip(corner_p, sv))
 	{
 		g3_rotate_point(corner, vcvertptr(verts[vert]));
-		if (labs(corner.p3_x) > max) max = labs(corner.p3_x);
-		if (labs(corner.p3_y) > max) max = labs(corner.p3_y);
+		if (labs(corner.p3_vec.x) > max) max = labs(corner.p3_vec.x);
+		if (labs(corner.p3_vec.y) > max) max = labs(corner.p3_vec.y);
 	}
 
-	view_dist = fixmul(view_dist,fixdiv(fixdiv(max,SIDE_VIEW_FRAC),corner_p[0].p3_z));
+	view_dist = fixmul(view_dist,fixdiv(fixdiv(max,SIDE_VIEW_FRAC),corner_p[0].p3_vec.z));
 	const auto view_vec3{vm_vec_copy_scale(view_vec, view_dist)};
 	vm_vec_sub(ConsoleObject->pos,side_center,view_vec3);
 

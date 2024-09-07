@@ -1325,7 +1325,7 @@ int load_level(
 	{
 		filename = filename_storage.data(); 
 		snprintf(filename_storage.data(), filename_storage.size(), "%.*s%s", DXX_ptrdiff_cast_int(std::distance(Current_mission->path.cbegin(), Current_mission->filename)), Current_mission->path.c_str(), filename_passed);
-		auto &&[fp, physfserr] = PHYSFSX_openReadBuffered(filename);
+		auto &&[fp, physfserr] = PHYSFSX_openReadBuffered_updateCase(filename_storage.data());
 		if (!fp)
 		{
 #if DXX_USE_EDITOR
@@ -1357,9 +1357,9 @@ int load_level(
 	if (Gamesave_current_version > 1)
 	{
 		if (!PHYSFSX_fgets(Current_level_palette, LoadFile))
-			Current_level_palette[0] = 0;
+			Current_level_palette[0u] = 0;
 	}
-	if (Gamesave_current_version <= 1 || Current_level_palette[0]==0) // descent 1 level
+	if (Gamesave_current_version <= 1 || Current_level_palette[0u]==0) // descent 1 level
 		strcpy(Current_level_palette.next().data(), DEFAULT_LEVEL_PALETTE);
 
 	if (Gamesave_current_version >= 3)

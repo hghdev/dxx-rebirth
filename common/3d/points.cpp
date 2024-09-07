@@ -16,28 +16,34 @@
 
 namespace dcx {
 
-//code a point.  fills in the p3_codes field of the point, and returns the codes
-clipping_code g3_code_point(g3s_point &p)
+namespace {
+
+clipping_code build_g3_clipping_code_from_viewer_relative_position(const vms_vector &viewer_relative_position)
 {
 	clipping_code cc{};
 
-	if (p.p3_x > p.p3_z)
+	if (viewer_relative_position.x > viewer_relative_position.z)
 		cc |= clipping_code::off_right;
 
-	if (p.p3_y > p.p3_z)
+	if (viewer_relative_position.y > viewer_relative_position.z)
 		cc |= clipping_code::off_top;
 
-	if (p.p3_x < -p.p3_z)
+	if (viewer_relative_position.x < -viewer_relative_position.z)
 		cc |= clipping_code::off_left;
 
-	if (p.p3_y < -p.p3_z)
+	if (viewer_relative_position.y < -viewer_relative_position.z)
 		cc |= clipping_code::off_bot;
 
-	if (p.p3_z < 0)
+	if (viewer_relative_position.z < 0)
 		cc |= clipping_code::behind;
+	return cc;
+}
 
-	return p.p3_codes = cc;
+}
 
+clipping_code g3_code_point(g3s_point &p)
+{
+	return p.p3_codes = build_g3_clipping_code_from_viewer_relative_position(p.p3_vec);
 }
 
 //rotates a point. returns codes.  does not check if already rotated
@@ -48,23 +54,25 @@ clipping_code g3_rotate_point(g3s_point &dest,const vms_vector &src)
 	return g3_code_point(dest);
 }
 
-//checks for overflow & divides if ok, fillig in r
-//returns true if div is ok, else false
-std::optional<int32_t> checkmuldiv(fix a,fix b,fix c)
+/* Multiply `a` and `b` into a 64-bit result.  Check whether ((a * b) / c) will
+ * overflow when stored into a 32-bit signed integer.  If the quotient does not
+ * overflow a 32-bit value, then return a std::optional that contains the
+ * quotient.  If the quotient does overflow, then return a std::optional that
+ * does not contain a value.
+ */
+std::optional<int32_t> checkmuldiv(const fix a, const fix b, const fix c)
 {
-	const int64_t a64 = a;
-	const int64_t b64 = b;
 	/* product will be negative if and only if the sign bits of the input
 	 * values require it.  Storing the result in a 64-bit value ensures that
 	 * overflow cannot occur, and so the sign bit cannot be incorrectly set as
 	 * a side effect of overflow.
 	 */
-	const int64_t product = a64 * b64;
+	const int64_t product{int64_t{a} * int64_t{b}};
 	/* absolute_product will be positive, because the only negative number that
 	 * remains negative after negation is too large to be produced by the
 	 * multiplication of 2 32-bit signed inputs.
 	 */
-	const auto absolute_product = (product < 0) ? -product : product;
+	const auto absolute_product{(product < 0) ? -product : product};
 	if ((absolute_product >> 31) >= c)
 		/* If this branch is taken, then the division would produce a value
 		 * that cannot be correctly represented in `int32_t`.  Return a failure
@@ -80,8 +88,11 @@ std::optional<int32_t> checkmuldiv(fix a,fix b,fix c)
 		 */
 		return std::nullopt;
 	else {
-		const int64_t c64 = c;
-		return static_cast<int32_t>(product / c64);
+		/* According to language rules, this is a narrowing conversion.
+		 * However, runtime logic above ensured that this path is only reached
+		 * if the value is not changed by the narrowing conversion.
+		 */
+		return static_cast<int32_t>(product / int64_t{c});
 	}
 }
 
@@ -92,10 +103,10 @@ void g3_project_point(g3s_point &p)
 	if ((p.p3_flags & projection_flag::projected) || (p.p3_codes & clipping_code::behind) != clipping_code::None)
 		return;
 
-	const auto pz = p.p3_z;
-	const auto otx = checkmuldiv(p.p3_x, Canv_w2, pz);
+	const auto pz = p.p3_vec.z;
+	const auto otx = checkmuldiv(p.p3_vec.x, Canv_w2, pz);
 	std::optional<int32_t> oty;
-	if (otx && (oty = checkmuldiv(p.p3_y, Canv_h2, pz)))
+	if (otx && (oty = checkmuldiv(p.p3_vec.y, Canv_h2, pz)))
 	{
 		p.p3_sx = Canv_w2 + *otx;
 		p.p3_sy = Canv_h2 - *oty;
@@ -109,14 +120,14 @@ void g3_project_point(g3s_point &p)
 	if ((p.p3_flags & projection_flag::projected) || (p.p3_codes & clipping_code::behind) != clipping_code::None)
 		return;
 	
-	if ( p.p3_z <= 0 )	{
+	if ( p.p3_vec.z <= 0 )	{
 		p.p3_flags |= projection_flag::overflow;
 		return;
 	}
 
-	fz = f2fl(p.p3_z);
-	p.p3_sx = fl2f(fCanv_w2 + (f2fl(p.p3_x)*fCanv_w2 / fz));
-	p.p3_sy = fl2f(fCanv_h2 - (f2fl(p.p3_y)*fCanv_h2 / fz));
+	fz = f2fl(p.p3_vec.z);
+	p.p3_sx = fl2f(fCanv_w2 + (f2fl(p.p3_vec.x)*fCanv_w2 / fz));
+	p.p3_sy = fl2f(fCanv_h2 - (f2fl(p.p3_vec.y)*fCanv_h2 / fz));
 
 	p.p3_flags |= projection_flag::projected;
 #endif

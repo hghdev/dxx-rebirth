@@ -19,6 +19,7 @@
 #include <stdlib.h>
 
 #include "args.h"
+#include "digi.h"
 #include "hmp.h"
 #include "adlmidi_dynamic.h"
 #include "digi_mixer_music.h"
@@ -27,6 +28,24 @@
 #include "config.h"
 #include "console.h"
 #include "physfsrwops.h"
+
+#if SDL_MIXER_MAJOR_VERSION == 1
+/* SDL_mixer-1 is inconsistent in its memory management.  On success, it takes
+ * ownership.  On failure, it may free the resource immediately or may leave it
+ * allocated, with no indication which was done.  Therefore, for simplicity,
+ * always manage the object in Rebirth code.
+ */
+#define DXX_USE_SDL_RWOPS_MANAGEMENT	0
+#else
+/* SDL_mixer-2 (and possibly later versions, though that has not been checked)
+ * are consistent, and can handle the memory management internally.  For
+ * completeness, provide a compile-time knob for Rebirth to manage this, but
+ * default it to delegate to SDL_mixer.
+ */
+#ifndef DXX_USE_SDL_RWOPS_MANAGEMENT
+#define DXX_USE_SDL_RWOPS_MANAGEMENT	1
+#endif
+#endif
 
 namespace dcx {
 
@@ -40,17 +59,49 @@ struct Music_delete
 	}
 };
 
-class current_music_t : std::unique_ptr<Mix_Music, Music_delete>
+class current_music_t :
+#if !DXX_USE_SDL_RWOPS_MANAGEMENT
+	/* If the memory management is not delegated to SDL, then an additional
+	 * `std::unique_ptr` is needed to track and free the memory.  Based on code
+	 * inspection, SDL_mixer does not appear to access the `SDL_RWops`
+	 * structure while processing the `Mix_FreeMusic` call.  However, since
+	 * logically the `Mix_Music` depends on the `SDL_RWops`, it seems safer to
+	 * assume that `Mix_FreeMusic` might access the `SDL_RWops`, and arrange
+	 * for the lifetime of `SDL_RWops` to exceed the lifetime of the
+	 * `Mix_Music`.  Therefore, the `SDL_RWops` is stored earlier in the class
+	 * than the `Mix_Music`, and is destroyed later.
+	 *
+	 * If the memory management is delegated to SDL, then no additional storage
+	 * is needed.
+	 */
+	RWops_ptr,
+#endif
+	std::unique_ptr<Mix_Music, Music_delete>
 {
 	using music_pointer = std::unique_ptr<Mix_Music, Music_delete>;
 public:
+#if DXX_USE_SDL_RWOPS_MANAGEMENT
+	/* Inherit the zero-argument form of `reset`, since the `reset()` method on
+	 * this class would only be a call to `music_pointer::reset()`.  Prohibit
+	 * use of the one-argument form of `reset`, since it would not be visible
+	 * in the `#else` case.
+	 */
 	using music_pointer::reset;
-	void reset(SDL_RWops *rw);
+	void reset(auto) = delete;
+#else
+	void reset()
+	{
+		music_pointer::reset();
+		RWops_ptr::reset();
+	}
+#endif
+	[[nodiscard]]
+	uintptr_t reset(RWops_ptr rw);
 	using music_pointer::operator bool;
 	using music_pointer::get;
 };
 
-void current_music_t::reset(SDL_RWops *const rw)
+uintptr_t current_music_t::reset(RWops_ptr rw)
 {
 	if (!rw)
 	{
@@ -61,22 +112,48 @@ void current_music_t::reset(SDL_RWops *const rw)
 		 * useful.
 		 */
 		reset();
-		return;
+		return 0;
 	}
-	reset(Mix_LoadMUSType_RW(rw, MUS_NONE, SDL_TRUE));
-	if constexpr (SDL_MIXER_MAJOR_VERSION == 1)
+	const auto music{Mix_LoadMUSType_RW(rw.get(), MUS_NONE, DXX_USE_SDL_RWOPS_MANAGEMENT)};
+	music_pointer::reset(music);
+#if DXX_USE_SDL_RWOPS_MANAGEMENT
+	/* The `SDL_RWops` is now owned by SDL_mixer, so clear the
+	 * `std::unique_ptr` to avoid freeing the `SDL_RWops`.
+	 *
+	 * If the load failed, then the `SDL_RWops` has already been freed.
+	 * If the load succeeded, then SDL_mixer will free the `SDL_RWops` when the
+	 * `Mix_Music` is destroyed.
+	 */
+	rw.release();
+#else
+	if (music)
 	{
-		/* In SDL_mixer-1, setting freesrc==SDL_TRUE only transfers ownership
-		 * of the RWops structure on success.  On failure, the structure is
-		 * still owned by the caller, and must be freed here.
+		/* The `SDL_RWops` remains owned by Rebirth, but must remain alive
+		 * until the `Mix_Music` is destroyed, so transfer the `SDL_RWops` into
+		 * the class to extend its lifetime.
 		 *
-		 * In SDL_mixer-2, setting freesrc==SDL_TRUE always transfers ownership
-		 * of the RWops structure.  On failure, SDL_mixer-2 will free the RWops
-		 * before returning, so the structure must not be freed here.
+		 * The previous `Mix_Music`, if any, was freed by the
+		 * `music_pointer::reset` above, so the previous `SDL_RWops`, if any,
+		 * can now be freed safely.
 		 */
-		if (!*this)
-			SDL_RWclose(rw);
+		RWops_ptr::operator=(std::move(rw));
 	}
+	else
+	{
+		/* If `!music`, the SDL_RWops is owned by Rebirth, but not needed since
+		 * there is no music to use it.  Allow it to expire at the end of the
+		 * function.
+		 *
+		 * Clear the prior RWops_ptr, if any, since it corresponds to the prior
+		 * music that was freed above.
+		 */
+		RWops_ptr::reset();
+	}
+#endif
+	/* Return the pointer as an integer, because callers should only check for
+	 * success versus failure, and should not dereference the `Mix_Music *`.
+	 */
+	return reinterpret_cast<uintptr_t>(music);
 }
 
 static current_music_t current_music;
@@ -123,7 +200,7 @@ static void mix_set_music_type_adl(int loop, void (*const hook_finished_track)()
 }
 #endif
 
-enum class CurrentMusicType
+enum class CurrentMusicType : uint8_t
 {
 	None,
 #if DXX_USE_ADLMIDI
@@ -132,10 +209,17 @@ enum class CurrentMusicType
 	SDLMixer,
 };
 
-static CurrentMusicType current_music_type = CurrentMusicType::None;
+static CurrentMusicType current_music_type{CurrentMusicType::None};
 
-static CurrentMusicType load_mus_data(std::span<const uint8_t> data, int loop, void (*const hook_finished_track)());
+static CurrentMusicType load_mus_data(const char *filename, std::span<const uint8_t> data, int loop, void (*const hook_finished_track)());
 static CurrentMusicType load_mus_file(const char *filename, int loop, void (*const hook_finished_track)());
+
+#ifdef _WIN32
+// Windows native-MIDI stuff.
+static std::unique_ptr<hmp_file> cur_hmp;
+static uint8_t digi_win32_midi_song_playing;
+static uint8_t already_playing;
+#endif
 
 }
 
@@ -154,7 +238,7 @@ int mix_play_file(const char *filename, int loop, void (*const entry_hook_finish
 		if (auto &&[v, hoe] = hmp2mid(filename); hoe == hmp_open_error::None)
 		{
 			current_music_hndlbuf = std::move(v);
-			current_music_type = load_mus_data(current_music_hndlbuf, loop, hook_finished_track);
+			current_music_type = load_mus_data(filename, current_music_hndlbuf, loop, hook_finished_track);
 			if (current_music_type != CurrentMusicType::None)
 				return 1;
 		}
@@ -190,13 +274,15 @@ int mix_play_file(const char *filename, int loop, void (*const entry_hook_finish
 	{
 		if (RAIIPHYSFS_File filehandle{PHYSFS_openRead(filename)})
 		{
-			const auto len = PHYSFS_fileLength(filehandle);
+			const auto len{PHYSFS_fileLength(filehandle)};
 			current_music_hndlbuf.resize(len);
 			const auto bufsize{PHYSFSX_readBytes(filehandle, current_music_hndlbuf.data(), len)};
-			current_music_type = load_mus_data(std::span(current_music_hndlbuf).first(bufsize), loop, hook_finished_track);
+			current_music_type = load_mus_data(filename, std::span(current_music_hndlbuf).first(bufsize), loop, hook_finished_track);
 			if (current_music_type != CurrentMusicType::None)
 				return 1;
 		}
+		else
+			con_printf(CON_VERBOSE, "warning: failed to open PhysFS file \"%s\"", filename);
 	}
 
 	con_printf(CON_CRITICAL, "Music %s could not be loaded: %s", filename, Mix_GetError());
@@ -255,7 +341,7 @@ void mix_pause_resume_music()
 
 namespace {
 
-static CurrentMusicType load_mus_data(const std::span<const uint8_t> data, int loop, void (*const hook_finished_track)())
+static CurrentMusicType load_mus_data(const char *const filename, const std::span<const uint8_t> data, int loop, void (*const hook_finished_track)())
 {
 #if DXX_USE_ADLMIDI
 	const auto adlmidi = get_adlmidi();
@@ -267,20 +353,19 @@ static CurrentMusicType load_mus_data(const std::span<const uint8_t> data, int l
 	else
 #endif
 	{
-		const auto rw = SDL_RWFromConstMem(data.data(), data.size());
-		current_music.reset(rw);
-		if (current_music)
+		if (current_music.reset(RWops_ptr{SDL_RWFromConstMem(data.data(), data.size())}))
 		{
 			mix_set_music_type_sdlmixer(loop, hook_finished_track);
 			return CurrentMusicType::SDLMixer;
 		}
+		else
+			con_printf(CON_VERBOSE, "warning: failed to load music from data from file \"%s\"", filename);
 	}
 	return CurrentMusicType::None;
 }
 
 static CurrentMusicType load_mus_file(const char *filename, int loop, void (*const hook_finished_track)())
 {
-	CurrentMusicType type = CurrentMusicType::None;
 #if DXX_USE_ADLMIDI
 	const auto adlmidi = get_adlmidi();
 	if (adlmidi && adl_openFile(adlmidi, filename) == 0)
@@ -290,16 +375,23 @@ static CurrentMusicType load_mus_file(const char *filename, int loop, void (*con
 	}
 	else
 #endif
+	if (RWops_ptr rw{SDL_RWFromFile(filename, "rb")})
 	{
-		const auto rw = SDL_RWFromFile(filename, "rb");
-		current_music.reset(rw);
-		if (current_music)
+		if (current_music.reset(std::move(rw)))
 		{
 			mix_set_music_type_sdlmixer(loop, hook_finished_track);
 			return CurrentMusicType::SDLMixer;
 		}
+		else
+			con_printf(CON_VERBOSE, "warning: failed to load music from filesystem file \"%s\"", filename);
 	}
-	return type;
+	else
+		/* The caller speculatively tries to treat inputs variously as PhysFS
+		 * files and filesystem files.  Failure to open this path as a
+		 * filesystem file is not necessarily an error.
+		 */
+		con_printf(CON_VERBOSE, "warning: failed to open filesystem file \"%s\"", filename);
+	return CurrentMusicType::None;
 }
 
 #if DXX_USE_ADLMIDI
@@ -328,5 +420,60 @@ static void mix_adlmidi(void *, Uint8 *stream, int len)
 #endif
 
 }
+
+#ifdef _WIN32
+void digi_win32_pause_midi_song()
+{
+	hmp_pause(cur_hmp.get());
+}
+
+void digi_win32_resume_midi_song()
+{
+	hmp_resume(cur_hmp.get());
+}
+
+void digi_win32_stop_midi_song()
+{
+	if (!digi_win32_midi_song_playing)
+		return;
+	digi_win32_midi_song_playing = 0;
+	cur_hmp.reset();
+	hmp_reset();
+}
+
+void digi_win32_set_midi_volume( int mvolume )
+{
+	hmp_setvolume(cur_hmp.get(), mvolume*MIDI_VOLUME_SCALE/8);
+}
+
+int digi_win32_play_midi_song( const char * filename, int loop )
+{
+	if (!already_playing)
+	{
+		hmp_reset();
+		already_playing = 1;
+	}
+	digi_win32_stop_midi_song();
+
+	if (filename == NULL)
+		return 0;
+
+	if ((cur_hmp = std::get<0>(hmp_open(filename))))
+	{
+		/*
+		 * FIXME: to be implemented as soon as we have some kind or checksum function - replacement for ugly hack in hmp.c for descent.hmp
+		 * if (***filesize check*** && ***CRC32 or MD5 check***)
+		 *	(((*cur_hmp).trks)[1]).data[6] = 0x6C;
+		 */
+		if (hmp_play(cur_hmp.get(),loop) != 0)
+			return 0;	// error
+		digi_win32_midi_song_playing = 1;
+		digi_win32_set_midi_volume(CGameCfg.MusicVolume);
+		return 1;
+	}
+
+	return 0;
+}
+#endif
 
 }

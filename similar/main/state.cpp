@@ -1253,13 +1253,13 @@ int state_save_all(const secret_save secret, const blind_save blind_save)
 			std::array<char, PATH_MAX> fname;
 			const auto temp_fname = fname.data();
 			format_secret_sgc_filename(fname, filenum);
-			if (PHYSFSX_exists(temp_fname,0))
+			if (PHYSFS_exists(temp_fname))
 			{
 				if (!PHYSFS_delete(temp_fname))
 					Error("Cannot delete file <%s>: %s", temp_fname, PHYSFS_getLastError());
 			}
 
-			if (PHYSFSX_exists(SECRETC_FILENAME,0))
+			if (PHYSFS_exists(SECRETC_FILENAME))
 			{
 				const int rval = copy_file(SECRETC_FILENAME, temp_fname);
 				Assert(rval == 0);	//	Oops, error copying secret.sgc to temp_fname!
@@ -1298,7 +1298,7 @@ int state_save_all_sub(const char *filename, const char *desc)
 	if (!fp)
 	{
 		const auto errstr = PHYSFS_getErrorByCode(physfserr);
-		con_printf(CON_URGENT, "Failed to open %s: %s", filename, errstr);
+		con_printf(CON_URGENT, "Failed to open savegame %s: %s", filename, errstr);
 		struct error_writing_savegame :
 			std::array<char, 96>,
 			passive_messagebox
@@ -1796,7 +1796,7 @@ int state_restore_all(const int in_game, const secret_restore secret, const char
 			std::array<char, PATH_MAX> fname;
 			const auto temp_fname = fname.data();
 			format_secret_sgc_filename(fname, filenum);
-			if (PHYSFSX_exists(temp_fname,0))
+			if (PHYSFS_exists(temp_fname))
 			{
 				rval = copy_file(temp_fname, SECRETC_FILENAME);
 				Assert(rval == 0);	//	Oops, error copying temp_fname to secret.sgc!

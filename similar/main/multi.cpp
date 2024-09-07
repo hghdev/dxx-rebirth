@@ -94,7 +94,9 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 constexpr std::integral_constant<int8_t, -1> owner_none{};
 
 namespace dsx {
+
 namespace {
+
 static void MultiLevelInv_Repopulate(fix frequency);
 void multi_new_bounty_target_with_sound(playernum_t, const char *callsign);
 static void multi_reset_object_texture(object_base &objp);
@@ -128,19 +130,30 @@ static constexpr netgrant_flag operator|(const netgrant_flag a, const netgrant_f
 }
 
 }
+
 }
+
 namespace {
+
 static void multi_send_heartbeat();
 static void multi_send_ranking(netplayer_info::player_rank);
 static void multi_send_gmode_update();
+
 }
+
 #if defined(DXX_BUILD_DESCENT_II)
 namespace dsx {
+
 namespace {
+
+static char hoard_ham_basename[]{"hoard.ham"};
+
 static void multi_do_capture_bonus(const playernum_t pnum);
 static void multi_do_orb_bonus(const playernum_t pnum, const multiplayer_rspan<multiplayer_command_t::MULTI_ORB_BONUS> buf);
 static void multi_send_drop_flag(vmobjptridx_t objnum,int seed);
+
 }
+
 }
 #endif
 namespace dcx {
@@ -905,7 +918,7 @@ static void multi_compute_kill(const d_robot_info_array &Robot_info, const imobj
 	kill_matrix[killer_pnum][killed_pnum] += 1;
 	if (killer_pnum == killed_pnum)
 	{
-		if (!game_mode_hoard())
+		if (!game_mode_hoard(Game_mode))
 		{
 			if (Game_mode & GM_TEAM)
 			{
@@ -953,7 +966,7 @@ static void multi_compute_kill(const d_robot_info_array &Robot_info, const imobj
 			if (killed_team == killer_team)
 				adjust = -1;
 		}
-		if (!game_mode_hoard())
+		if (!game_mode_hoard(Game_mode))
 		{
 			if (is_team_game)
 			{
@@ -1164,7 +1177,7 @@ void multi_leave_game()
 	multi::dispatch->leave_game();
 
 #if defined(DXX_BUILD_DESCENT_I)
-	plyr_save_stats();
+	plyr_save_stats(InterfaceUniqueState.PilotName, PlayerCfg.NetlifeKills, PlayerCfg.NetlifeKilled);
 #endif
 
 	multi_quit_game = 0;	// quit complete
@@ -1399,7 +1412,7 @@ static void multi_send_message_end(const d_robot_info_array &Robot_info, fvmobjp
 				if (vcplayerptr(i)->connected != player_connection_status::disconnected && !d_strnicmp(static_cast<const char *>(vcplayerptr(i)->callsign), &Network_message[name_index], nlen - name_index))
 				{
 #if defined(DXX_BUILD_DESCENT_II)
-					if (game_mode_capture_flag() && (vmobjptr(vcplayerptr(i)->objnum)->ctype.player_info.powerup_flags & PLAYER_FLAGS_FLAG))
+					if (game_mode_capture_flag(Game_mode) && (vmobjptr(vcplayerptr(i)->objnum)->ctype.player_info.powerup_flags & PLAYER_FLAGS_FLAG))
 					{
 						HUD_init_message_literal(HM_MULTI, "Can't move player because s/he has a flag!");
 						return;
@@ -1834,7 +1847,7 @@ static void multi_do_player_deres(const d_robot_info_array &Robot_info, object_a
 	player_info.primary_weapon_flags = GET_WEAPON_FLAGS(buf, count);
 	player_info.laser_level = laser_level{buf[count]};
 	count++;
-	if (game_mode_hoard())
+	if (game_mode_hoard(Game_mode))
 		player_info.hoard.orbs = buf[count];
 	count++;
 
@@ -2710,7 +2723,7 @@ void multi_send_player_deres(deres_type_t type)
 	auto &player_info = get_local_plrobj().ctype.player_info;
 	PUT_WEAPON_FLAGS(multibuf, count, player_info.primary_weapon_flags);
 	multibuf[count++] = static_cast<char>(player_info.laser_level);
-	multibuf[count++] = game_mode_hoard() ? static_cast<char>(player_info.hoard.orbs) : 0;
+	multibuf[count++] = game_mode_hoard(Game_mode) ? static_cast<char>(player_info.hoard.orbs) : 0;
 
 	auto &secondary_ammo = player_info.secondary_ammo;
 	multibuf[count++] = secondary_ammo[secondary_weapon_index_t::HOMING_INDEX];
@@ -3532,10 +3545,10 @@ void multi_prep_level_player(void)
 	Viewer = ConsoleObject = &get_local_plrobj();
 
 #if defined(DXX_BUILD_DESCENT_II)
-	if (game_mode_hoard())
+	if (game_mode_hoard(Game_mode))
 		init_hoard_data(Vclip);
 
-	if (game_mode_capture_flag() || game_mode_hoard())
+	if (game_mode_capture_flag(Game_mode) || game_mode_hoard(Game_mode))
 		multi_apply_goal_textures();
 #endif
 
@@ -3596,7 +3609,7 @@ const tmap_info &find_required_goal_texture(const d_level_unique_tmap_info_state
 void multi_apply_goal_textures()
 {
 	texture1_value tex_blue, tex_red;
-	if (game_mode_hoard())
+	if (game_mode_hoard(Game_mode))
 		tex_blue = tex_red = build_texture1_value(find_goal_texture(LevelUniqueTmapInfoState, tmapinfo_flag::goal_hoard));
 	else
 	{
@@ -4300,7 +4313,7 @@ static void multi_do_sound_function(const playernum_t pnum, const multiplayer_rs
 void multi_send_capture_bonus (const playernum_t pnum)
 {
 	multi_command<multiplayer_command_t::MULTI_CAPTURE_BONUS> multibuf;
-	Assert (game_mode_capture_flag());
+	assert(game_mode_capture_flag(Game_mode));
 
 	multibuf[1]=pnum;
 
@@ -4311,7 +4324,7 @@ void multi_send_capture_bonus (const playernum_t pnum)
 void multi_send_orb_bonus (const playernum_t pnum, const uint8_t hoard_orbs)
 {
 	multi_command<multiplayer_command_t::MULTI_ORB_BONUS> multibuf;
-	Assert (game_mode_hoard());
+	assert(game_mode_hoard(Game_mode));
 
 	multibuf[1]=pnum;
 	multibuf[2] = hoard_orbs;
@@ -4491,7 +4504,7 @@ static void multi_do_got_orb (const playernum_t pnum)
 {
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &vmobjptr = Objects.vmptr;
-	Assert (game_mode_hoard());
+	assert(game_mode_hoard(Game_mode));
 
 	digi_play_sample((Game_mode & GM_TEAM) && get_team(pnum) == get_team(Player_num)
 		? SOUND_FRIEND_GOT_ORB
@@ -4508,7 +4521,7 @@ static void DropOrb ()
 	auto &vmobjptr = Objects.vmptr;
 	int seed;
 
-	if (!game_mode_hoard())
+	if (!game_mode_hoard(Game_mode))
 		Int3(); // How did we get here? Get Leighton!
 
 	auto &player_info = get_local_plrobj().ctype.player_info;
@@ -4523,7 +4536,10 @@ static void DropOrb ()
 
 	const auto &&objnum = spit_powerup(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, Vclip, *ConsoleObject, powerup_type_t::POW_HOARD_ORB, seed);
 	if (objnum == object_none)
+	{
+		HUD_init_message_literal(HM_MULTI, "Failed to drop orb!");
 		return;
+	}
 
 	HUD_init_message_literal(HM_MULTI, "Orb dropped!");
 	digi_play_sample (SOUND_DROP_WEAPON,F1_0);
@@ -4547,13 +4563,13 @@ void DropFlag ()
 	auto &vmobjptr = Objects.vmptr;
 	int seed;
 
-	if (!game_mode_capture_flag() && !game_mode_hoard())
-		return;
-	if (game_mode_hoard())
+	if (game_mode_hoard(Game_mode))
 	{
 		DropOrb();
 		return;
 	}
+	else if (!game_mode_capture_flag(Game_mode))
+		return;
 
 	auto &player_info = get_local_plrobj().ctype.player_info;
 	if (!(player_info.powerup_flags & PLAYER_FLAGS_FLAG))
@@ -4572,7 +4588,7 @@ void DropFlag ()
 	HUD_init_message_literal(HM_MULTI, "Flag dropped!");
 	digi_play_sample (SOUND_DROP_WEAPON,F1_0);
 
-	if (game_mode_capture_flag())
+	if (game_mode_capture_flag(Game_mode))
 		multi_send_drop_flag(objnum,seed);
 
 	player_info.powerup_flags &=~(PLAYER_FLAGS_FLAG);
@@ -4604,15 +4620,15 @@ static void multi_do_drop_flag(const playernum_t pnum, const multiplayer_rspan<m
 	const objnum_t remote_objnum = GET_INTEL_SHORT(&buf[2]);
 	const auto seed{GET_INTEL_INT<int32_t>(&buf[6])};
 
-	const auto &&objp = vmobjptr(vcplayerptr(pnum)->objnum);
+	auto &plrobj{*vmobjptr(vcplayerptr(pnum)->objnum)};
 
-	const imobjidx_t objnum = spit_powerup(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, Vclip, objp, powerup_id, seed);
+	const imobjidx_t objnum{spit_powerup(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, Vclip, plrobj, powerup_id, seed)};
 	if (objnum == object_none)
 		return;
 
 	map_objnum_local_to_remote(objnum, remote_objnum, pnum);
-	if (!game_mode_hoard())
-		objp->ctype.player_info.powerup_flags &= ~(PLAYER_FLAGS_FLAG);
+	if (!game_mode_hoard(Game_mode))
+		plrobj.ctype.player_info.powerup_flags &= ~(PLAYER_FLAGS_FLAG);
 }
 
 }
@@ -4709,7 +4725,7 @@ netflag_flag multi_powerup_is_allowed(const powerup_type_t id, const netflag_fla
 			return AllowedItems & netflag_flag::NETFLAG_DOHEADLIGHT;
 		case powerup_type_t::POW_FLAG_BLUE:
 		case powerup_type_t::POW_FLAG_RED:
-			return netflag_flag{game_mode_capture_flag()};
+			return netflag_flag{game_mode_capture_flag(Game_mode)};
 #endif
 		default:
 			return netflag_flag{1};
@@ -5560,7 +5576,7 @@ int HoardEquipped()
 
 	if (unlikely(checked == -1))
 	{
-		checked = PHYSFSX_exists("hoard.ham",1);
+		checked = PHYSFSX_exists_ignorecase(hoard_ham_basename);
 	}
 	return (checked);
 }
@@ -5594,7 +5610,7 @@ void init_hoard_data(d_vclip_array &Vclip)
 	hoard_resources.bm_idx = bitmap_index{bitmap_num};
 	auto &TmapInfo = LevelUniqueTmapInfoState.TmapInfo;
 
-	auto &&[ifile, physfserr] = PHYSFSX_openReadBuffered("hoard.ham");
+	auto &&[ifile, physfserr] = PHYSFSX_openReadBuffered(hoard_ham_basename);
 	if (!ifile)
 		Error("Failed to open <hoard.ham>: %s", PHYSFS_getErrorByCode(physfserr));
 
@@ -5737,7 +5753,7 @@ void save_hoard_data(void)
 				"teamorb.raw","teamorb.r22",    //SOUND_FRIEND_GOT_ORB
 				"enemyorb.raw","enemyorb.r22",  //SOUND_OPPONENT_GOT_ORB
 				"OPSCORE1.raw","OPSCORE1.r22"}; //SOUND_OPPONENT_HAS_SCORED
-	auto ofile = PHYSFSX_openWriteBuffered("hoard.ham").first;
+	auto ofile{PHYSFSX_openWriteBuffered(hoard_ham_basename).first};
 	if (!ofile)
 		return;
 
@@ -5746,8 +5762,7 @@ void save_hoard_data(void)
 		auto &bm = read_result.bm;
 		auto &palette = read_result.palette;
 		const auto nframes = read_result.n_bitmaps;
-		const auto iff_error = read_result.status;
-		assert(iff_error == IFF_NO_ERROR);
+		assert(read_result.status == iff_status_code::no_error);
 	PHYSFS_writeULE16(ofile, nframes);
 	PHYSFS_writeULE16(ofile, bm[0]->bm_w);
 	PHYSFS_writeULE16(ofile, bm[0]->bm_h);
@@ -5761,8 +5776,7 @@ void save_hoard_data(void)
 		auto &bm = read_result.bm;
 		auto &palette = read_result.palette;
 		const auto nframes = read_result.n_bitmaps;
-		const auto iff_error = read_result.status;
-		assert(iff_error == IFF_NO_ERROR);
+		assert(read_result.status == iff_status_code::no_error);
 	Assert(bm[0]->bm_w == 64 && bm[0]->bm_h == 64);
 	PHYSFS_writeULE16(ofile, nframes);
 	PHYSFSX_writeBytes(ofile, palette.data(), sizeof(palette[0]) * palette.size());
@@ -5774,8 +5788,9 @@ void save_hoard_data(void)
 	{
 		palette_array_t palette;
 		grs_bitmap icon;
-		const auto iff_error = iff_read_bitmap(i ? "orbb.bbm" : "orb.bbm", icon, &palette);
-		Assert(iff_error == IFF_NO_ERROR);
+		const auto iff_error{iff_read_bitmap(i ? "orbb.bbm" : "orb.bbm", icon, &palette)};
+		(void)iff_error;
+		assert(iff_error == iff_status_code::no_error);
 		PHYSFS_writeULE16(ofile, icon.bm_w);
 		PHYSFS_writeULE16(ofile, icon.bm_h);
 		PHYSFSX_writeBytes(ofile, palette.data(), sizeof(palette[0]) * palette.size());

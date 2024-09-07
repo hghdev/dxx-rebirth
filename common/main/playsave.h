@@ -72,7 +72,7 @@ struct saved_game_sw
 	int		auto_leveling_on;		//does player have autoleveling on?
 } __pack__;
 
-void plyr_save_stats();
+void plyr_save_stats(const char *callsign, int kills, int deaths);
 }
 #endif
 #endif
@@ -91,6 +91,8 @@ struct hli
 #include "d_array.h"
 
 namespace dcx {
+
+enum class reticle_type : uint8_t;
 
 enum class FiringAutoselectMode : uint8_t
 {
@@ -196,19 +198,19 @@ struct player_config : prohibit_void_ptr<player_config>
 	enumerated_array<ntstring<MAX_MESSAGE_LEN - 1>, 4, multi_macro_message_index> NetworkMessageMacro;
 	int NetlifeKills;
 	int NetlifeKilled;
-	ubyte ReticleType;
 	std::array<int, 4> ReticleRGBA;
 	int ReticleSize;
+	reticle_type ReticleType;
 #if defined(DXX_BUILD_DESCENT_II)
 	MissileViewMode MissileViewEnabled;
 	uint8_t ThiefModifierFlags;
-	int HeadlightActiveDefault;
-	int GuidedInBigWindow;
+	bool HeadlightActiveDefault;
+	bool GuidedInBigWindow;
 	ntstring<GUIDEBOT_NAME_LEN> GuidebotName, GuidebotNameReal;
-	int EscortHotKeys;
+	bool EscortHotKeys;
 #endif
-	int PersistentDebris;
-	int PRShot;
+	bool PersistentDebris;
+	bool PRShot;
 	ubyte NoRedundancy;
 	ubyte MultiMessages;
         ubyte MultiPingHud;

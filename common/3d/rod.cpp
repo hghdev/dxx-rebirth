@@ -127,7 +127,6 @@ void g3_draw_rod_tmap(grs_canvas &canvas, grs_bitmap &bitmap, const g3s_point &b
 
 #if !DXX_USE_OGL
 //draws a bitmap with the specified 3d width & height 
-//returns 1 if off screen, 0 if drew
 void g3_draw_bitmap(grs_canvas &canvas, const vms_vector &pos, fix width, fix height, grs_bitmap &bm)
 {
 	g3s_point pnt;
@@ -138,7 +137,7 @@ void g3_draw_bitmap(grs_canvas &canvas, const vms_vector &pos, fix width, fix he
 	if (pnt.p3_flags & projection_flag::overflow)
 		return;
 #ifndef __powerc
-	const auto pz = pnt.p3_z;
+	const auto pz = pnt.p3_vec.z;
 	if (const auto ox = checkmuldiv(width, Canv_w2, pz))
 		w = fixmul(*ox, Matrix_scale.x);
 	else
@@ -149,9 +148,9 @@ void g3_draw_bitmap(grs_canvas &canvas, const vms_vector &pos, fix width, fix he
 	else
 		return;
 #else
-	if (pnt.p3_z == 0)
+	if (pnt.p3_vec.z == 0)
 		return;
-	double fz = f2fl(pnt.p3_z);
+	double fz = f2fl(pnt.p3_vec.z);
 	w = fixmul(fl2f(((f2fl(width)*fCanv_w2) / fz)), Matrix_scale.x);
 	h = fixmul(fl2f(((f2fl(height)*fCanv_h2) / fz)), Matrix_scale.y);
 #endif

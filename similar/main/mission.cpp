@@ -77,6 +77,8 @@ using std::min;
 
 namespace dcx {
 
+char descent_hog_basename[]{"descent.hog"};
+
 namespace {
 
 using mission_candidate_search_path = std::array<char, PATH_MAX>;
@@ -101,6 +103,9 @@ auto prepare_mission_list_count_dirbuf(const std::size_t immediate_directories)
 }
 
 namespace dsx {
+
+char descent2_hog_basename[]{"descent2.hog"};
+char d2demo_hog_basename[]{"d2demo.hog"};
 
 namespace {
 
@@ -325,7 +330,7 @@ static void build_rdl_secret_level_names(const unsigned count_secret_level, std:
 
 static void load_mission_d1()
 {
-	switch (descent_hog_size{PHYSFSX_fsize("descent.hog")})
+	switch (descent_hog_size{PHYSFSX_fsize(descent_hog_basename)})
 	{
 		case descent_hog_size::pc_shareware_v14:
 		case descent_hog_size::pc_shareware_v10:
@@ -630,7 +635,7 @@ static std::span<const char> get_d1_mission_name_from_descent_hog_size(const des
 
 static void add_d1_builtin_mission_to_list(mission_list_type &mission_list)
 {
-	const descent_hog_size size{PHYSFSX_fsize("descent.hog")};
+	const descent_hog_size size{PHYSFSX_fsize(descent_hog_basename)};
 	if (size == descent_hog_size{-1})
 		return;
 
@@ -660,9 +665,9 @@ static const mle *set_hardcoded_mission(mission_list_type &mission_list, const c
 
 static void add_builtin_mission_to_list(mission_list_type &mission_list, d_fname &name)
 {
-    descent_hog_size size{PHYSFSX_fsize("descent2.hog")};
+    descent_hog_size size{PHYSFSX_fsize(descent2_hog_basename)};
 	if (size == descent_hog_size{-1})
-		size = descent_hog_size{PHYSFSX_fsize("d2demo.hog")};
+		size = descent_hog_size{PHYSFSX_fsize(d2demo_hog_basename)};
 
 	const mle *mission;
 	switch (size) {
@@ -900,7 +905,8 @@ static void set_briefing_filename(d_fname &f, const std::span<const char> v)
 {
 	f.copy_if(v.data(), v.size());
 	f.copy_if(v.size(), tex);
-	if (!PHYSFSX_exists(static_cast<const char *>(f), 1) && !(f.copy_if(v.size() + 1, "txb"), PHYSFSX_exists(static_cast<const char *>(f), 1))) // check if this file exists ...
+	if (!PHYSFSX_exists_ignorecase(f.data()) &&
+		!(f.copy_if(v.size() + 1, "txb"), PHYSFSX_exists_ignorecase(f.data()))) // check if this file exists ...
 		f = {};
 }
 
@@ -954,8 +960,7 @@ static const char *load_mission(const mle *const mission)
 #endif
 	{
 		std::array<char, PATH_MAX> pathname;
-		static char relname[]{"descent.hog"};
-		if (const auto r = PHYSFSX_addRelToSearchPath(relname, pathname, physfs_search_path::prepend); r != PHYSFS_ERR_OK)
+		if (const auto r = PHYSFSX_addRelToSearchPath(descent_hog_basename, pathname, physfs_search_path::prepend); r != PHYSFS_ERR_OK)
 #if defined(DXX_BUILD_DESCENT_I)
 			Error("descent.hog not available!\n%s", PHYSFS_getErrorByCode(r));
 #elif defined(DXX_BUILD_DESCENT_II)
@@ -969,7 +974,7 @@ static const char *load_mission(const mle *const mission)
 	}
 #if defined(DXX_BUILD_DESCENT_II)
 	else
-		PHYSFSX_removeRelFromSearchPath("descent.hog");
+		PHYSFSX_removeRelFromSearchPath(descent_hog_basename);
 #endif
 
 #if defined(DXX_BUILD_DESCENT_II)
@@ -1009,9 +1014,7 @@ static const char *load_mission(const mle *const mission)
 	std::array<char, PATH_MAX> mission_filename;
 	snprintf(mission_filename.data(), mission_filename.size(), "%s%s", mission->path.c_str(), msn_extension);
 
-	PHYSFSEXT_locateCorrectCase(mission_filename.data());
-
-	auto &&[mfile, physfserr] = PHYSFSX_openReadBuffered(mission_filename.data());
+	auto &&[mfile, physfserr] = PHYSFSX_openReadBuffered_updateCase(mission_filename.data());
 	if (!mfile) {
 		Current_mission.reset();
 		con_printf(CON_NORMAL, DXX_STRINGIZE_FL(__FILE__, __LINE__, "error: failed to open mission \"%s\": %s"), mission_filename.data(), PHYSFS_getErrorByCode(physfserr));
@@ -1128,7 +1131,7 @@ static const char *load_mission(const mle *const mission)
 			}
 		}
 #if defined(DXX_BUILD_DESCENT_II)
-		else if (Current_mission->descent_version == Mission::descent_version_type::descent2a && buf[0] == '!') {
+		else if (Current_mission->descent_version == Mission::descent_version_type::descent2a && buf[0u] == '!') {
 			if (istok(buf+1,"ham")) {
 				Current_mission->alternate_ham_file = std::make_unique<d_fname>();
 				if (const auto v{get_value(buf)})

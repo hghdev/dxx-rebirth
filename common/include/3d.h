@@ -135,35 +135,53 @@ static constexpr projection_flag operator~(const projection_flag a)
 	return static_cast<projection_flag>(~static_cast<uint8_t>(a));
 }
 
-//Used to store rotated points for mines.  Has frame count to indictate
-//if rotated, and flag to indicate if projected.
-struct g3s_point {
-	vms_vector p3_vec;  //x,y,z of rotated point
-#if !DXX_USE_OGL
-	fix p3_u,p3_v,p3_l; //u,v,l coords
-#endif
-	fix p3_sx,p3_sy;    //screen x&y
-	clipping_code p3_codes;     //clipping codes
-	projection_flag p3_flags;     //projected?
-	uint16_t p3_last_generation;
-};
-
-//macros to reference x,y,z elements of a 3d point
-#define p3_x p3_vec.x
-#define p3_y p3_vec.y
-#define p3_z p3_vec.z
-
-#ifdef __cplusplus
-//Functions in library
-
-//Frame setup functions:
-
 namespace dcx {
 
 struct g3_instance_context
 {
 	const vms_matrix matrix;
 	const vms_vector position;
+};
+
+struct g3_rotated_point
+{
+	vms_vector p3_vec;
+protected:
+	g3_rotated_point() = default;
+};
+
+/*
+ * This stores a point that has been rotated about the Viewer's orientation
+ * matrix.  p3_flags tracks whether the point has been projected into screen
+ * coordinates (`projected`) and, if so, whether the resulting coordinates are
+ * outside the screen's viewable area (`overflow`).
+ */
+struct g3s_point : g3_rotated_point
+{
+#if !DXX_USE_OGL
+	fix p3_u, p3_v, p3_l; //u,v,l coords
+#endif
+	fix p3_sx, p3_sy;    //screen x&y
+	clipping_code p3_codes;     //clipping codes
+	projection_flag p3_flags;     //projected?
+	g3s_point() = default;
+};
+
+/* Store the frame count at which this point was last updated.  If the stored
+ * count matches the current frame generation, then the other members are valid
+ * for this frame and do not need to be recomputed.  If the stored count does
+ * not match the current frame generation, then the data is stale, may be
+ * invalid, and should be recomputed.
+ *
+ * In the unlikely case that the viewer has not moved or rotated at all since
+ * the frame in which this was computed, stale data might match what will be
+ * recomputed.  However, this case is sufficiently uncommon that it is not
+ * worth detecting it solely to avoid recomputing the rotation.
+ */
+struct g3s_reusable_point : g3s_point
+{
+	uint16_t p3_last_generation;
+	g3s_reusable_point() = default;
 };
 
 #if DXX_USE_OGL
@@ -259,6 +277,13 @@ constexpr std::integral_constant<std::size_t, 64> MAX_POINTS_PER_POLY{};
 //draw a sortof sphere - i.e., the 2d radius is proportional to the 3d
 //radius, but not to the distance from the eye
 void g3_draw_sphere(grs_canvas &, cg3s_point &pnt, fix rad, uint8_t color);
+
+#if !DXX_USE_OGL
+static inline void g3_draw_sphere(grs_canvas &canvas, g3s_point &&pnt, fix rad, uint8_t color)
+{
+	g3_draw_sphere(canvas, pnt, rad, color);
+}
+#endif
 
 //@@//return ligting value for a point
 //@@fix g3_compute_lighting_value(g3s_point *rotated_point,fix normval);
@@ -385,5 +410,3 @@ static inline void g3_check_and_draw_tmap(grs_canvas &canvas, const std::array<c
 void g3_draw_line(const g3_draw_line_context &context, cg3s_point &p0, cg3s_point &p1);
 
 }
-
-#endif

@@ -61,8 +61,6 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "d_zip.h"
 #include "partial_range.h"
 
-#define PLAYER_EFFECTIVENESS_FILENAME_FORMAT	PLAYER_DIRECTORY_STRING("%s.eff")
-
 #define GameNameStr "game_name"
 #define GameModeStr "gamemode"
 #define RefusePlayersStr "RefusePlayers"
@@ -190,13 +188,17 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #define SAVE_FILE_ID MAKE_SIG('D','P','L','R')
 
 struct player_config PlayerCfg;
+
 namespace dsx {
+
 namespace {
+
 #if defined(DXX_BUILD_DESCENT_I)
-static void plyr_read_stats();
+static constexpr char eff_extension[3]{'e', 'f', 'f'};
+static void plyr_read_stats(std::span<char>);
 static std::array<saved_game_sw, N_SAVE_SLOTS> saved_games;
 #elif defined(DXX_BUILD_DESCENT_II)
-static inline void plyr_read_stats() {}
+static inline void plyr_read_stats(std::span<char>) {}
 static int get_lifetime_checksum (int a,int b);
 #endif
 
@@ -289,7 +291,7 @@ void new_player_config()
 	PlayerCfg.MouseFSDead = 0;
 	PlayerCfg.MouseFSIndicator = 1;
 	PlayerCfg.CockpitMode[0] = PlayerCfg.CockpitMode[1] = cockpit_mode_t::full_cockpit;
-	PlayerCfg.ReticleType = RET_TYPE_CLASSIC;
+	PlayerCfg.ReticleType = reticle_type::classic;
 	PlayerCfg.ReticleRGBA[0] = RET_COLOR_DEFAULT_R; PlayerCfg.ReticleRGBA[1] = RET_COLOR_DEFAULT_G; PlayerCfg.ReticleRGBA[2] = RET_COLOR_DEFAULT_B; PlayerCfg.ReticleRGBA[3] = RET_COLOR_DEFAULT_A;
 	PlayerCfg.ReticleSize = 0;
 	PlayerCfg.HudMode = HudType::Standard;
@@ -299,14 +301,14 @@ void new_player_config()
 	PlayerCfg.Cockpit3DView = {};
 	PlayerCfg.ThiefModifierFlags = 0;
 	PlayerCfg.MissileViewEnabled = MissileViewMode::EnabledSelfOnly;
-	PlayerCfg.HeadlightActiveDefault = 1;
-	PlayerCfg.GuidedInBigWindow = 0;
+	PlayerCfg.HeadlightActiveDefault = true;
+	PlayerCfg.GuidedInBigWindow = false;
 	PlayerCfg.GuidebotName = "GUIDE-BOT";
 	PlayerCfg.GuidebotNameReal = PlayerCfg.GuidebotName;
-	PlayerCfg.EscortHotKeys = 1;
+	PlayerCfg.EscortHotKeys = true;
 #endif
-	PlayerCfg.PersistentDebris = 0;
-	PlayerCfg.PRShot = 0;
+	PlayerCfg.PersistentDebris = false;
+	PlayerCfg.PRShot = false;
 	PlayerCfg.NoRedundancy = 0;
 	PlayerCfg.MultiMessages = 0;
         PlayerCfg.MultiPingHud = 0;
@@ -370,8 +372,6 @@ namespace dsx {
 namespace {
 static void read_player_dxx(const char *filename)
 {
-	plyr_read_stats();
-
 	auto f = PHYSFSX_openReadBuffered(filename).first;
 	if (!f)
 		return;
@@ -479,7 +479,15 @@ static void read_player_dxx(const char *filename)
 				if(!strcmp(line,COCKPIT_HUD_NAME_TEXT))
 					PlayerCfg.HudMode = static_cast<HudType>(atoi(value));
 				else if(!strcmp(line,COCKPIT_RETICLE_TYPE_NAME_TEXT))
-					PlayerCfg.ReticleType = atoi(value);
+				{
+					/* Require that the input be an integer and be a recognized
+					 * value for the `reticle_type` enum.  Integers above the
+					 * highest `reticle_type` are ignored.
+					 */
+					if (const auto r{convert_integer<uint8_t>(value)}; r)
+						if (const auto v{*r}; v <= underlying_value(reticle_type::angle))
+							PlayerCfg.ReticleType = reticle_type{v};
+				}
 				else if(!strcmp(line,COCKPIT_RETICLE_COLOR_NAME_TEXT))
 					sscanf(value,"%i,%i,%i,%i",&PlayerCfg.ReticleRGBA[0],&PlayerCfg.ReticleRGBA[1],&PlayerCfg.ReticleRGBA[2],&PlayerCfg.ReticleRGBA[3]);
 				else if(!strcmp(line,COCKPIT_RETICLE_SIZE_NAME_TEXT))
@@ -503,7 +511,10 @@ static void read_player_dxx(const char *filename)
 					PlayerCfg.BombGauge = atoi(value);
 #elif defined(DXX_BUILD_DESCENT_II)
 				if(!strcmp(line,TOGGLES_ESCORTHOTKEYS_NAME_TEXT))
-					PlayerCfg.EscortHotKeys = atoi(value);
+				{
+					if (const auto r{convert_integer<uint8_t>(value)}; r)
+						PlayerCfg.EscortHotKeys = *r;
+				}
 				else if (!strcmp(line, TOGGLES_THIEF_ABSENCE_SP))
 				{
 					if (strtoul(value, 0, 10))
@@ -521,9 +532,15 @@ static void read_player_dxx(const char *filename)
 					PlayerCfg.SPGameplayOptions.AutosaveInterval = std::chrono::seconds(l);
 				}
 				if(!strcmp(line,TOGGLES_PERSISTENTDEBRIS_NAME_TEXT))
-					PlayerCfg.PersistentDebris = atoi(value);
+				{
+					if (const auto r{convert_integer<uint8_t>(value)}; r)
+						PlayerCfg.PersistentDebris = *r;
+				}
 				if(!strcmp(line,TOGGLES_PRSHOT_NAME_TEXT))
-					PlayerCfg.PRShot = atoi(value);
+				{
+					if (const auto r{convert_integer<uint8_t>(value)}; r)
+						PlayerCfg.PRShot = *r;
+				}
 				if(!strcmp(line,TOGGLES_NOREDUNDANCY_NAME_TEXT))
 					PlayerCfg.NoRedundancy = atoi(value);
 				if(!strcmp(line,TOGGLES_MULTIMESSAGES_NAME_TEXT))
@@ -628,27 +645,24 @@ static const uint8_t *decode_stat(const uint8_t *p,int *v,const char *effcode)
 	return p+(i*2);
 }
 
-static void plyr_read_stats_v(int *k, int *d)
+static std::pair<int /* kills */, int /* deaths */> plyr_read_stats_v(const std::span<char> filename)
 {
-	char filename[PATH_MAX];
 	int k1=-1,k2=0,d1=-1,d2=0;
-	*k=0;*d=0;//in case the file doesn't exist.
-	memset(filename, '\0', PATH_MAX);
-	snprintf(filename,sizeof(filename),PLAYER_EFFECTIVENESS_FILENAME_FORMAT,static_cast<const char *>(get_local_player().callsign));
-	if (auto f = PHYSFSX_openReadBuffered(filename).first)
+	int k{}, d{};
+	if (auto &&[f, pe] = PHYSFSX_openReadBuffered(filename.data()); f)
 	{
 		PHYSFSX_gets_line_t<256> line;
 		if (!PHYSFS_eof(f) && PHYSFSX_fgets(line, f))
 		{
 			 const char *value=splitword(line,':');
 			 if(!strcmp(line,"kills") && value)
-				*k=atoi(value);
+				k=atoi(value);
 		}
 		if (!PHYSFS_eof(f) && PHYSFSX_fgets(line, f))
 		{
 			 const char *value=splitword(line,':');
 			 if(!strcmp(line,"deaths") && value)
-				*d=atoi(value);
+				d=atoi(value);
 		}
 		if (!PHYSFS_eof(f) && PHYSFSX_fgets(line, f))
 		{
@@ -664,91 +678,94 @@ static void plyr_read_stats_v(int *k, int *d)
 				 }
 			 }
 		}
-		if (k1!=k2 || k1!=*k || d1!=d2 || d1!=*d)
+		if (k1 != k2 || k1 != k || d1 != d2 || d1 != d)
+			k = d = 0;
+	}
+	else if (pe != PHYSFS_ERR_NOT_FOUND)
+	{
+		/* "File not found" is normal on a new install, so do not warn about
+		 * it.
+		 */
+		con_printf(CON_NORMAL, "error: failed to open player effectiveness file \"%s\": %s", filename.data(), PHYSFS_getErrorByCode(pe));
+	}
+	return {k, d};
+}
+
+/* This changes the extension on the filename referenced by `filename`.
+ */
+static void plyr_read_stats(const std::span<char> filename)
+{
+	std::ranges::copy(eff_extension, std::ranges::begin(filename.last<3>()));
+	auto &&[NetlifeKills, NetlifeKilled] = plyr_read_stats_v(filename);
+	PlayerCfg.NetlifeKills = NetlifeKills;
+	PlayerCfg.NetlifeKilled = NetlifeKilled;
+}
+
+}
+
+void plyr_save_stats(const char *const callsign, int kills, int deaths)
+{
+	struct effectiveness_key
+	{
+		enum : std::size_t { buffer_size = 16 };
+		std::array<char, buffer_size> buf1{}, buf2{};
+		char i;
+		static effectiveness_key build(int count, const std::span<const char, 18> eff1, const std::span<const char, 18> eff2)
 		{
-			*k=0;*d=0;
+			effectiveness_key result;
+			const unsigned negate{count < 0 ? (count = -count, 1u) : 0u};
+			unsigned i{};
+			for (; count; ++i)
+			{
+				const uint8_t truncated_count{static_cast<uint8_t>(count)};
+				{
+					const uint8_t a1 = truncated_count ^ eff1[i + negate];
+					result.buf1[i * 2] = (a1 & 0xF) + 33;
+					result.buf1[i * 2 + 1] = (a1 >> 4) + 33;
+				}
+				{
+					const uint8_t a2 = truncated_count ^ eff2[i + negate];
+					result.buf2[i * 2] = (a2 & 0xF) + 33;
+					result.buf2[i * 2 + 1] = (a2 >> 4) + 33;
+				}
+				count >>= 8;
+			}
+			result.i = i + (negate ? 'a' : 'A');
+			return result;
 		}
-	}
-}
-
-static void plyr_read_stats()
-{
-	plyr_read_stats_v(&PlayerCfg.NetlifeKills,&PlayerCfg.NetlifeKilled);
-}
-}
-
-void plyr_save_stats()
-{
-	int kills = PlayerCfg.NetlifeKills,deaths = PlayerCfg.NetlifeKilled, neg, i;
-	char filename[PATH_MAX];
-	std::array<uint8_t, 16> buf, buf2;
-	uint8_t a;
-	memset(filename, '\0', PATH_MAX);
-	snprintf(filename,sizeof(filename),PLAYER_EFFECTIVENESS_FILENAME_FORMAT,static_cast<const char *>(get_local_player().callsign));
-	auto f = PHYSFSX_openWriteBuffered(filename).first;
-	if(!f)
-		return; //broken!
-
-	PHYSFSX_printf(f,"kills:%i\n",kills);
-	PHYSFSX_printf(f,"deaths:%i\n",deaths);
-	PHYSFSX_puts_literal(f, "key:01 ");
-
-	if (kills < 0)
-	{
-		neg=1;
-		kills*=-1;
-	}
+	private:
+		/* Require use of the helper method `build`. */
+		constexpr effectiveness_key() = default;
+	};
+	std::array<char, 26 /* fixed bytes */ + (2 * 12) /* 2 maximum length integers */ + (2 * 2 * effectiveness_key::buffer_size) /* 2 maximum length effectiveness_key buffers */> file_contents;
+	const auto ekills{effectiveness_key::build(kills, effcode1, effcode2)};
+	const auto edeaths{effectiveness_key::build(deaths, effcode3, effcode4)};
+	const auto content_length{
+		std::snprintf(
+			file_contents.data(), file_contents.size(),
+			"kills:%i\n"
+			"deaths:%i\n"
+			"key:01 "
+			"%c%s %c%s "
+			"%c%s %c%s\n",
+			kills, deaths,
+			ekills.i, ekills.buf1.data(), ekills.i, ekills.buf2.data(),
+			edeaths.i, edeaths.buf1.data(), edeaths.i, edeaths.buf2.data()
+		)
+	};
+	if (content_length >= file_contents.size())
+		return;
+	std::array<char, sizeof(PLAYER_DIRECTORY_TEXT ".eff") + CALLSIGN_LEN> filename;
+	const auto plr_filename_length{std::snprintf(filename.data(), filename.size(), PLAYER_DIRECTORY_STRING("%.8s.eff"), callsign)};
+	if (plr_filename_length >= filename.size())
+		return;
+	if (RAIIPHYSFS_File f{PHYSFS_openWrite(filename.data())})
+		PHYSFS_writeBytes(f, file_contents.data(), content_length);
 	else
-		neg=0;
-
-	for (i=0;kills;i++)
 	{
-		a=(kills & 0xFF) ^ effcode1[i+neg];
-		buf[i*2]=(a&0xF)+33;
-		buf[i*2+1]=(a>>4)+33;
-		a=(kills & 0xFF) ^ effcode2[i+neg];
-		buf2[i*2]=(a&0xF)+33;
-		buf2[i*2+1]=(a>>4)+33;
-		kills>>=8;
+		const auto pe{PHYSFS_getLastErrorCode()};
+		con_printf(CON_NORMAL, "error: failed to open player effectiveness file for write \"%s\": %s", filename.data(), PHYSFS_getErrorByCode(pe));
 	}
-
-	buf[i*2]=0;
-	buf2[i*2]=0;
-
-	if (neg)
-		i+='a';
-	else
-		i+='A';
-
-	PHYSFSX_printf(f,"%c%s %c%s ",i,buf.data(),i,buf2.data());
-
-	if (deaths < 0)
-	{
-		neg=1;
-		deaths*=-1;
-	}else
-		neg=0;
-
-	for (i=0;deaths;i++)
-	{
-		a=(deaths & 0xFF) ^ effcode3[i+neg];
-		buf[i*2]=(a&0xF)+33;
-		buf[i*2+1]=(a>>4)+33;
-		a=(deaths & 0xFF) ^ effcode4[i+neg];
-		buf2[i*2]=(a&0xF)+33;
-		buf2[i*2+1]=(a>>4)+33;
-		deaths>>=8;
-	}
-
-	buf[i*2]=0;
-	buf2[i*2]=0;
-
-	if (neg)
-		i+='a';
-	else
-		i+='A';
-
-	PHYSFSX_printf(f, "%c%s %c%s\n", i, buf.data(), i, buf2.data());
 }
 #endif
 
@@ -828,7 +845,7 @@ static int write_player_dxx(const char *filename)
 		PHYSFSX_printf(fout, COCKPIT_MODE_NAME_TEXT "=%i\n", underlying_value(PlayerCfg.CockpitMode[0]));
 #endif
 		PHYSFSX_printf(fout,COCKPIT_HUD_NAME_TEXT "=%u\n", static_cast<unsigned>(PlayerCfg.HudMode));
-		PHYSFSX_printf(fout,COCKPIT_RETICLE_TYPE_NAME_TEXT "=%i\n",PlayerCfg.ReticleType);
+		PHYSFSX_printf(fout,COCKPIT_RETICLE_TYPE_NAME_TEXT "=%i\n", underlying_value(PlayerCfg.ReticleType));
 		PHYSFSX_printf(fout,COCKPIT_RETICLE_COLOR_NAME_TEXT "=%i,%i,%i,%i\n",PlayerCfg.ReticleRGBA[0],PlayerCfg.ReticleRGBA[1],PlayerCfg.ReticleRGBA[2],PlayerCfg.ReticleRGBA[3]);
 		PHYSFSX_printf(fout,COCKPIT_RETICLE_SIZE_NAME_TEXT "=%i\n",PlayerCfg.ReticleSize);
 		PHYSFSX_puts_literal(fout,
@@ -884,7 +901,6 @@ static int write_player_dxx(const char *filename)
 //read in the player's saved games.  returns errno (0 == no error)
 int read_player_file()
 {
-	char filename[PATH_MAX];
 #if defined(DXX_BUILD_DESCENT_I)
 	int shareware_file = -1;
 	int player_file_size;
@@ -896,14 +912,16 @@ int read_player_file()
 
 	Assert(Player_num < MAX_PLAYERS);
 
-	memset(filename, '\0', PATH_MAX);
-	snprintf(filename, sizeof(filename), PLAYER_DIRECTORY_STRING("%.8s.plr"), static_cast<const char *>(InterfaceUniqueState.PilotName));
-	if (!PHYSFSX_exists(filename,0))
-		return ENOENT;
-	auto &&[file, physfserr] = PHYSFSX_openReadBuffered(filename);
+	std::array<char, sizeof(PLAYER_DIRECTORY_TEXT ".plr") + CALLSIGN_LEN> filename;
+	const auto plr_filename_length{std::snprintf(filename.data(), filename.size(), PLAYER_DIRECTORY_STRING("%.8s.plr"), static_cast<const char *>(InterfaceUniqueState.PilotName))};
+	if (plr_filename_length >= filename.size())
+		return -1;
+	auto &&[file, physfserr]{PHYSFSX_openReadBuffered(filename.data())};
 	if (!file)
 	{
-		nm_messagebox(menu_title{TXT_ERROR}, {TXT_OK}, "Failed to open PLR file\n%s\n\n%s", filename, PHYSFS_getErrorByCode(physfserr));
+		if (physfserr == PHYSFS_ERR_NOT_FOUND)
+			return ENOENT;
+		nm_messagebox(menu_title{TXT_ERROR}, {TXT_OK}, "Failed to open PLR file\n%s\n\n%s", filename.data(), PHYSFS_getErrorByCode(physfserr));
 		return -1;
 	}
 
@@ -1253,9 +1271,9 @@ int read_player_file()
 		write_player_file();
 #endif
 
-	filename[strlen(filename) - 4] = 0;
-	strcat(filename, ".plx");
-	read_player_dxx(filename);
+	filename[plr_filename_length - 1] = 'x';
+	read_player_dxx(filename.data());
+	plyr_read_stats(std::span(filename).first(plr_filename_length));
 	kc_set_controls();
 
 	return EZERO;
@@ -1439,7 +1457,7 @@ void write_player_file()
 	if ( Newdemo_state == ND_STATE_PLAYBACK )
 		return;
 
-	errno_ret = WriteConfigFile();
+	errno_ret = WriteConfigFile(CGameCfg, GameCfg);
 
 	snprintf(filename, sizeof(filename), PLAYER_DIRECTORY_STRING("%.8s.plx"), static_cast<const char *>(InterfaceUniqueState.PilotName));
 	write_player_dxx(filename);
@@ -1525,7 +1543,7 @@ void write_player_file()
 	PHYSFS_seek(file,PHYSFS_tell(file)+2*(sizeof(PHYSFS_uint16))); // skip Game_window_w, Game_window_h
 	PHYSFSX_writeU8(file, underlying_value(PlayerCfg.DefaultDifficulty));
 	PHYSFSX_writeU8(file, PlayerCfg.AutoLeveling);
-	PHYSFSX_writeU8(file, PlayerCfg.ReticleType==RET_TYPE_NONE?0:1);
+	PHYSFSX_writeU8(file, PlayerCfg.ReticleType == reticle_type::none ? 0 : 1);
 	PHYSFSX_writeU8(file, underlying_value(PlayerCfg.CockpitMode[0]));
 	PHYSFS_seek(file,PHYSFS_tell(file)+sizeof(PHYSFS_uint8)); // skip Default_display_mode
 	PHYSFSX_writeU8(file, static_cast<uint8_t>(PlayerCfg.MissileViewEnabled));

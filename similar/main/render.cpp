@@ -66,6 +66,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "d_levelstate.h"
 #include "d_enumerate.h"
 #include "d_range.h"
+#include "d_zip.h"
 #include "partial_range.h"
 #include "segiter.h"
 
@@ -112,6 +113,18 @@ namespace dcx {
 
 //Global vars for window clip test
 int Window_clip_left,Window_clip_top,Window_clip_right,Window_clip_bot;
+
+namespace {
+
+static void add_light_and_saturate(fix &l, const fix add)
+{
+	static constexpr fix MAX_LIGHT{0x10000};	// max value
+	l = (l >= MAX_LIGHT || add >= MAX_LIGHT)
+		? MAX_LIGHT
+		: std::min(l + add, MAX_LIGHT);
+}
+
+}
 
 }
 
@@ -297,11 +310,9 @@ static void render_face(grs_canvas &canvas, const shared_segment &segp, const si
 	const auto need_flashing_lights = (control_center_destroyed | Seismic_tremor_magnitude);	//make lights flash
 	auto &Dynamic_light = LevelUniqueLightState.Dynamic_light;
 	//set light values for each vertex & build pointlist
-	range_for (const uint_fast32_t i, xrange(nv))
+	for (auto &&[dli, uvli, vpi] : zip(std::span(dyn_light).first(nv), uvl_copy, vp))
 	{
-		auto &dli = dyn_light[i];
-		auto &uvli = uvl_copy[i];
-		auto &Dlvpi = Dynamic_light[vp[i]];
+		auto &Dlvpi = Dynamic_light[vpi];
 		dli.r = dli.g = dli.b = uvli.l;
 		//the uvl struct has static light already in it
 
@@ -309,10 +320,7 @@ static void render_face(grs_canvas &canvas, const shared_segment &segp, const si
 		if (need_flashing_lights)	//make lights flash
 			uvli.l = fixmul(flash_scale, uvli.l);
 		//add in dynamic light (from explosions, etc.)
-		uvli.l += (Dlvpi.r + Dlvpi.g + Dlvpi.b) / 3;
-		//saturate at max value
-		if (uvli.l > MAX_LIGHT)
-			uvli.l = MAX_LIGHT;
+		add_light_and_saturate(uvli.l, (Dlvpi.r + Dlvpi.g + Dlvpi.b) / 3);
 
 		// And now the same for the ACTUAL (rgb) light we want to use
 
@@ -326,16 +334,9 @@ static void render_face(grs_canvas &canvas, const shared_segment &segp, const si
 		}
 
 		// add light color
-		dli.r += Dlvpi.r;
-		dli.g += Dlvpi.g;
-		dli.b += Dlvpi.b;
-		// saturate at max value
-		if (dli.r > MAX_LIGHT)
-			dli.r = MAX_LIGHT;
-		if (dli.g > MAX_LIGHT)
-			dli.g = MAX_LIGHT;
-		if (dli.b > MAX_LIGHT)
-			dli.b = MAX_LIGHT;
+		add_light_and_saturate(dli.r, Dlvpi.r);
+		add_light_and_saturate(dli.g, Dlvpi.g);
+		add_light_and_saturate(dli.b, Dlvpi.b);
 		if (PlayerCfg.AlphaEffects) // due to additive blending, transparent sprites will become invivible in font of white surfaces (lamps). Fix that with a little desaturation
 		{
 			dli.r *= .93;
@@ -420,7 +421,7 @@ static void check_face(grs_canvas &canvas, const vmsegidx_t segnum, const sidenu
 #else
 			const auto save_lighting = Lighting_on;
 			Lighting_on = 2;
-			g3_draw_tmap(canvas, nv, pointlist, uvl_copy, dyn_light, *bm, tmap_drawer_ptr);
+			g3_draw_tmap(canvas, nv, pointlist, uvl_copy, dyn_light, *bm, draw_tmap);
 			Lighting_on = save_lighting;
 #endif
 		}
@@ -527,17 +528,13 @@ static void render_side(fvcvertptr &vcvertptr, grs_canvas &canvas, const vcsegpt
 		}
 
 		//	Determine whether to detriangulate side: (speed hack, assumes Tulate_min_ratio == F1_0*2, should fixmul(min_dot, Tulate_min_ratio))
-		if (DETRIANGULATION && ((min_dot+F1_0/256 > max_dot) || ((Viewer->segnum != segp) &&  (min_dot > Tulate_min_dot) && (max_dot < min_dot*2)))) {
-			fix	n0_dot_n1;
-
+		if (DETRIANGULATION && (min_dot + F1_0 / 256 > max_dot || (Viewer->segnum != segp && min_dot > Tulate_min_dot && max_dot < min_dot * 2)) &&
 			//	The other detriangulation code doesn't deal well with badly non-planar sides.
-			n0_dot_n1 = vm_vec_dot(normals[0], normals[1]);
-			if (n0_dot_n1 < Min_n0_n1_dot)
-				goto im_so_ashamed;
-
+			vm_vec_dot(normals[0], normals[1]) >= Min_n0_n1_dot
+			)
+		{
 			check_render_face(canvas, is_quad, segp, sidenum, 0, vertnum_list, uside.tmap_num, uside.tmap_num2, uside.uvls, wid_flags);
 		} else {
-im_so_ashamed: ;
 			if (sside.get_type() == side_type::tri_02)
 			{
 				if (v_dot_n0 >= 0) {

@@ -25,6 +25,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 
 #pragma once
 
+#include <ranges>
 #include <span>
 #include "dsx-ns.h"
 #include "fwd-inferno.h"
@@ -32,16 +33,6 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "fwd-partial_range.h"
 #include "sounds.h"
 #include "physfsx.h"
-
-#define D1_SHARE_BIG_PIGSIZE    5092871 // v1.0 - 1.4 before RLE compression
-#define D1_SHARE_10_PIGSIZE     2529454 // v1.0 - 1.2
-#define D1_SHARE_PIGSIZE        2509799 // v1.4
-#define D1_10_BIG_PIGSIZE       7640220 // v1.0 before RLE compression
-#define D1_10_PIGSIZE           4520145 // v1.0
-#define D1_PIGSIZE              4920305 // v1.4 - 1.5 (Incl. OEM v1.4a)
-#define D1_OEM_PIGSIZE          5039735 // v1.0
-#define D1_MAC_PIGSIZE          3975533
-#define D1_MAC_SHARE_PIGSIZE    2714487
 
 namespace dcx {
 
@@ -54,6 +45,9 @@ extern digi_sound bogus_sound;
 extern unsigned Num_sound_files;
 struct BitmapFile;
 
+void swap_0_255(grs_bitmap &bmp);
+void remove_char(char * s, char c);	// in piggy.cpp
+
 }
 
 #if defined(DXX_BUILD_DESCENT_II)
@@ -61,6 +55,7 @@ struct BitmapFile;
 #define MAX_ALIASES 20
 
 namespace dsx {
+extern char descent_pig_basename[12];
 struct alias;
 #if DXX_USE_EDITOR
 extern std::array<alias, MAX_ALIASES> alias_list;
@@ -125,19 +120,17 @@ void load_d1_bitmap_replacements();
 grs_bitmap *read_extra_bitmap_d1_pig(std::span<const char> name, grs_bitmap &out);
 void read_sndfile(int required);
 #endif
+/*
+ * reads a bitmap_index structure from a PHYSFS_File
+ */
+void bitmap_index_read(NamedPHYSFS_File fp, bitmap_index &bi);
+void bitmap_index_read_n(NamedPHYSFS_File fp, std::ranges::subrange<bitmap_index *> r);
+
 }
 int piggy_find_sound(std::span<const char> name);
 
 void piggy_read_bitmap_data(grs_bitmap * bmp);
 
-namespace dcx {
-/*
- * reads a bitmap_index structure from a PHYSFS_File
- */
-void bitmap_index_read(NamedPHYSFS_File fp, bitmap_index &bi);
-}
-
-void remove_char( char * s, char c );	// in piggy.c
 #define REMOVE_EOL(s)		remove_char((s),'\n')
 #define REMOVE_COMMENTS(s)	remove_char((s),';')
 #define REMOVE_DOTS(s)  	remove_char((s),'.')
@@ -154,7 +147,6 @@ extern hashtable AllDigiSndNames;
 #elif defined(DXX_BUILD_DESCENT_II)
 extern enumerated_array<BitmapFile, MAX_BITMAP_FILES, bitmap_index> AllBitmaps;
 #endif
-void swap_0_255(grs_bitmap &bmp);
 
 enum class pig_bitmap_offset : unsigned
 {

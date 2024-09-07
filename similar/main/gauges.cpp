@@ -1232,7 +1232,8 @@ static void hud_show_keys(const hud_draw_context_mr hudctx, const hud_ar_scale_f
 #if defined(DXX_BUILD_DESCENT_II)
 static void hud_show_orbs(grs_canvas &canvas, const player_info &player_info, const local_multires_gauge_graphic multires_gauge_graphic)
 {
-	if (game_mode_hoard()) {
+	if (game_mode_hoard(Game_mode))
+	{
 		const auto &&fspacy1 = FSPACY(1);
 		int x, y = LINE_SPACING(*canvas.cv_font, *GAME_FONT) + fspacy1;
 		const auto &&hud_scale_ar = HUD_SCALE_AR(grd_curscreen->get_screen_width(), grd_curscreen->get_screen_height(), multires_gauge_graphic);
@@ -1267,7 +1268,8 @@ static void hud_show_orbs(grs_canvas &canvas, const player_info &player_info, co
 
 static void hud_show_flag(grs_canvas &canvas, const player_info &player_info, const local_multires_gauge_graphic multires_gauge_graphic)
 {
-	if (game_mode_capture_flag() && (player_info.powerup_flags & PLAYER_FLAGS_FLAG)) {
+	if (game_mode_capture_flag(Game_mode) && (player_info.powerup_flags & PLAYER_FLAGS_FLAG))
+	{
 		int x, y = GameBitmaps[ GET_GAUGE_INDEX(GAUGE_LIVES) ].bm_h + 2, icon;
 		const auto &&fspacy1 = FSPACY(1);
 		if (PlayerCfg.CockpitMode[1] == cockpit_mode_t::full_cockpit)
@@ -3230,7 +3232,7 @@ const std::array<xy, 4> cross_offsets{{
 
 //draw the reticle
 namespace dsx {
-void show_reticle(grs_canvas &canvas, const player_info &player_info, int reticle_type, int secondary_display)
+void show_reticle(grs_canvas &canvas, const player_info &player_info, enum reticle_type reticle_type, int secondary_display)
 {
 	int x,y,size;
 	int laser_ready,missile_ready;
@@ -3275,7 +3277,7 @@ void show_reticle(grs_canvas &canvas, const player_info &player_info, int reticl
 		int x0, x1, y0, y1;
 	switch (reticle_type)
 	{
-		case RET_TYPE_CLASSIC:
+		case reticle_type::classic:
 		{
 			const local_multires_gauge_graphic multires_gauge_graphic{};
 			const hud_draw_context_hs_mr hudctx(canvas, grd_curscreen->get_screen_width(), grd_curscreen->get_screen_height(), multires_gauge_graphic);
@@ -3298,12 +3300,12 @@ void show_reticle(grs_canvas &canvas, const player_info &player_info, int reticl
 			hud_bitblt_free(canvas, x + hud_scale_ar(secondary_offsets[ofs].x), y + hud_scale_ar(secondary_offsets[ofs].y), hud_scale_ar(secondary.bm_w), hud_scale_ar(secondary.bm_h), secondary);
 			return;
 		}
-		case RET_TYPE_CLASSIC_REBOOT:
+		case reticle_type::classic_reboot:
 #if DXX_USE_OGL
 			ogl_draw_vertex_reticle(canvas, cross_bm_num,primary_bm_num,secondary_bm_num,BM_XRGB(PlayerCfg.ReticleRGBA[0],PlayerCfg.ReticleRGBA[1],PlayerCfg.ReticleRGBA[2]),PlayerCfg.ReticleRGBA[3],PlayerCfg.ReticleSize);
 #endif
 			return;
-		case RET_TYPE_X:
+		case reticle_type::x:
 			{
 			gr_uline(canvas, i2f(x-(size/2)), i2f(y-(size/2)), i2f(x-(size/5)), i2f(y-(size/5)), color); // top-left
 			gr_uline(canvas, i2f(x+(size/2)), i2f(y-(size/2)), i2f(x+(size/5)), i2f(y-(size/5)), color); // top-right
@@ -3319,7 +3321,7 @@ void show_reticle(grs_canvas &canvas, const player_info &player_info, int reticl
 				return;
 			}
 			break;
-		case RET_TYPE_DOT:
+		case reticle_type::dot:
 			{
 				gr_disk(canvas, i2f(x), i2f(y), i2f(size/5), color);
 			if (secondary_display && secondary_bm_num == 1)
@@ -3332,7 +3334,7 @@ void show_reticle(grs_canvas &canvas, const player_info &player_info, int reticl
 				return;
 			}
 			break;
-		case RET_TYPE_CIRCLE:
+		case reticle_type::circle:
 			{
 				gr_ucircle(canvas, i2f(x), i2f(y), i2f(size/4), color);
 			if (secondary_display && secondary_bm_num == 1)
@@ -3345,7 +3347,7 @@ void show_reticle(grs_canvas &canvas, const player_info &player_info, int reticl
 				return;
 			}
 			break;
-		case RET_TYPE_CROSS_V1:
+		case reticle_type::cross_v1:
 			{
 			gr_uline(canvas, i2f(x),i2f(y-(size/2)),i2f(x),i2f(y+(size/2)+1), color); // horiz
 			gr_uline(canvas, i2f(x-(size/2)),i2f(y),i2f(x+(size/2)+1),i2f(y), color); // vert
@@ -3359,7 +3361,7 @@ void show_reticle(grs_canvas &canvas, const player_info &player_info, int reticl
 				return;
 			}
 			break;
-		case RET_TYPE_CROSS_V2:
+		case reticle_type::cross_v2:
 			{
 			gr_uline(canvas, i2f(x), i2f(y-(size/2)), i2f(x), i2f(y-(size/6)), color); // vert-top
 			gr_uline(canvas, i2f(x), i2f(y+(size/2)), i2f(x), i2f(y+(size/6)), color); // vert-bottom
@@ -3375,7 +3377,7 @@ void show_reticle(grs_canvas &canvas, const player_info &player_info, int reticl
 				return;
 			}
 			break;
-		case RET_TYPE_ANGLE:
+		case reticle_type::angle:
 			{
 			gr_uline(canvas, i2f(x),i2f(y),i2f(x),i2f(y+(size/2)), color); // vert
 			gr_uline(canvas, i2f(x),i2f(y),i2f(x+(size/2)),i2f(y), color); // horiz
@@ -3389,7 +3391,7 @@ void show_reticle(grs_canvas &canvas, const player_info &player_info, int reticl
 				return;
 			}
 			break;
-		case RET_TYPE_NONE:
+		case reticle_type::none:
 		default:
 			return;
 	}
@@ -3646,7 +3648,7 @@ void show_HUD_names(const d_robot_info_array &Robot_info, grs_canvas &canvas, co
 #if defined(DXX_BUILD_DESCENT_I)
 			is_bounty_target;
 #elif defined(DXX_BUILD_DESCENT_II)
-			(is_bounty_target || ((game_mode_capture_flag() || game_mode_hoard()) && (pl_flags & PLAYER_FLAGS_FLAG)));
+			(is_bounty_target || ((game_mode_capture_flag(Game_mode) || game_mode_hoard(Game_mode)) && (pl_flags & PLAYER_FLAGS_FLAG)));
 #endif
 
 		if ((show_name || show_typing || show_indi) && see_object(Robot_info, vcobjptridx, objp))
@@ -3659,7 +3661,7 @@ void show_HUD_names(const d_robot_info_array &Robot_info, grs_canvas &canvas, co
 				{
 					const fix x = player_point.p3_sx;
 					const fix y = player_point.p3_sy;
-					const fix dy = -fixmuldiv(fixmul(objp->size, Matrix_scale.y), i2f(canvas.cv_bitmap.bm_h) / 2, player_point.p3_z);
+					const fix dy = -fixmuldiv(fixmul(objp->size, Matrix_scale.y), i2f(canvas.cv_bitmap.bm_h) / 2, player_point.p3_vec.z);
 					const fix dx = fixmul(dy, grd_curscreen->sc_aspect);
 					/* Set the text to show */
 					const auto name = is_bounty_target
@@ -3729,9 +3731,9 @@ void show_HUD_names(const d_robot_info_array &Robot_info, grs_canvas &canvas, co
 								int r, g, b;
 							} c{};
 #if defined(DXX_BUILD_DESCENT_II)
-						if (game_mode_capture_flag())
+						if (game_mode_capture_flag(Game_mode))
 								((get_team(pnum) == team_number::blue) ? c.r : c.b) = 31;
-						else if (game_mode_hoard())
+						else if (game_mode_hoard(Game_mode))
 						{
 								((Game_mode & GM_TEAM)
 									? ((get_team(pnum) == team_number::blue) ? c.b : c.r)
@@ -4102,7 +4104,7 @@ void do_cockpit_window_view(grs_canvas &canvas, const gauge_inset_window_view wi
 	}
 
 	if (player_info)	// only non-nullptr for weapon_box_user::guided
-		show_reticle(window_canv, *player_info, RET_TYPE_CROSS_V1, 0);
+		show_reticle(window_canv, *player_info, reticle_type::cross_v1, 0);
 
 	if (PlayerCfg.CockpitMode[1] == cockpit_mode_t::full_screen)
 	{

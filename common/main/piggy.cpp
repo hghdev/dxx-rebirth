@@ -17,16 +17,31 @@ AND AGREES TO THE TERMS HEREIN AND ACCEPTS THE SAME BY USE OF THIS FILE.
 COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 */
 
-/*
- *
- * Hopefully temporary file to hold external definition of Segment_points[]
- *
- */
+#include <ranges>
+#include "digi.h"
+#include "gr.h"
 
-#pragma once
+namespace dcx {
 
-#include "fwd-segment.h"
-#include "3d.h"
-#include "d_array.h"
+digi_sound bogus_sound;
+unsigned Num_sound_files;
 
-extern enumerated_array<g3s_reusable_point, MAX_VERTICES, vertnum_t> Segment_points;
+void swap_0_255(grs_bitmap &bmp)
+{
+	std::ranges::for_each(
+		std::span(bmp.get_bitmap_data(), bmp.bm_h * bmp.bm_w),
+		[](uint8_t &c) {
+		if (c == 0)
+			c = 255;
+		else if (c == 255)
+			c = 0;
+	});
+}
+
+void remove_char( char * s, char c )
+{
+	if (const auto p{strchr(s, c)})
+		*p = '\0';
+}
+
+}

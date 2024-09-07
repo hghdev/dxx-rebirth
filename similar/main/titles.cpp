@@ -200,9 +200,9 @@ static void show_title_screen(const char *const filename, title_load_location /*
 static void show_first_found_title_screen(const char *oem, const char *share, const char *macshare)
 {
 	const char *filename = oem;
-	if ((PHYSFSX_exists(filename, 1)) ||
-		(filename = share, PHYSFSX_exists(filename, 1)) ||
-		(filename = macshare, PHYSFSX_exists(filename, 1))
+	if ((PHYSFS_exists(filename)) ||
+		(filename = share, PHYSFS_exists(filename)) ||
+		(filename = macshare, PHYSFS_exists(filename))
 		)
 		show_title_screen(filename, title_load_location::from_hog_only);
 }
@@ -222,7 +222,7 @@ static int DefineBriefingBox(const grs_bitmap &, const char *&buf);
 void show_titles(void)
 {
 #if defined(DXX_BUILD_DESCENT_I)
-	songs_play_song(SONG_TITLE, 1);
+	songs_play_song(song_number::title, 1);
 #endif
 	if (CGameArg.SysNoTitles)
 		return;
@@ -236,8 +236,8 @@ void show_titles(void)
 	const bool resolution_at_least_640_480 = (SWIDTH >= 640 && SHEIGHT >= 480);
 	auto &logo_hires_pcx = "logoh.pcx";
 	auto &descent_hires_pcx = "descenth.pcx";
-	show_title_screen((resolution_at_least_640_480 && PHYSFSX_exists(logo_hires_pcx, 1)) ? logo_hires_pcx : "logo.pcx", title_load_location::from_hog_only);
-	show_title_screen((resolution_at_least_640_480 && PHYSFSX_exists(descent_hires_pcx, 1)) ? descent_hires_pcx : "descent.pcx", title_load_location::from_hog_only);
+	show_title_screen((resolution_at_least_640_480 && PHYSFS_exists(logo_hires_pcx)) ? logo_hires_pcx : "logo.pcx", title_load_location::from_hog_only);
+	show_title_screen((resolution_at_least_640_480 && PHYSFS_exists(descent_hires_pcx)) ? descent_hires_pcx : "descent.pcx", title_load_location::from_hog_only);
 #elif defined(DXX_BUILD_DESCENT_II)
 	int song_playing = 0;
 
@@ -251,7 +251,7 @@ void show_titles(void)
 			char filename[12];
 			strcpy(filename, hiresmode ? "pre_i1b.pcx" : "pre_i1.pcx");
 
-			while (PHYSFSX_exists(filename,0))
+			while (PHYSFS_exists(filename))
 			{
 				show_title_screen(filename, title_load_location::anywhere);
 				filename[5]++;
@@ -271,7 +271,7 @@ void show_titles(void)
 		if (played == movie_play_status::skipped)
 		{
 			con_puts(CON_DEBUG, "Playing title song...");
-			songs_play_song( SONG_TITLE, 1);
+			songs_play_song(song_number::title, 1);
 			song_playing = 1;
 			con_puts(CON_DEBUG, "Showing logo screens...");
 
@@ -302,7 +302,7 @@ void show_titles(void)
 		{
 			char filename[12];
 			strcpy(filename, hiresmode ? "oem1b.pcx" : "oem1.pcx");
-			while (PHYSFSX_exists(filename,0))
+			while (PHYSFS_exists(filename))
 			{
 				show_title_screen(filename, title_load_location::anywhere);
 				filename[3]++;
@@ -313,11 +313,11 @@ void show_titles(void)
 	if (!song_playing)
 	{
 		con_puts(CON_DEBUG, "Playing title song...");
-		songs_play_song( SONG_TITLE, 1);
+		songs_play_song(song_number::title, 1);
 	}
 	con_puts(CON_DEBUG, "Showing logo screen...");
 	const auto filename = hiresmode ? "descentb.pcx" : "descent.pcx";
-	if (PHYSFSX_exists(filename,1))
+	if (PHYSFS_exists(filename))
 		show_title_screen(filename, title_load_location::from_hog_only);
 #endif
 }
@@ -848,7 +848,7 @@ static int briefing_process_char(grs_canvas &canvas, briefing *const br)
 			std::copy(begin_filename, end_filename, std::begin(fname));
 			std::copy_n(begin_filename, idx_separator, std::begin(fnameb));
 			std::copy_n("b.pcx", 6, std::next(std::begin(fnameb), idx_separator));
-			auto &use_fname = ((HIRESMODE && PHYSFSX_exists(fnameb.data(), 1)) || !PHYSFSX_exists(fname.data(), 1))
+			auto &use_fname = ((HIRESMODE && PHYSFSX_exists_ignorecase(fnameb.data())) || !PHYSFSX_exists_ignorecase(fname.data()))
 				? fnameb
 				: fname;
 			if (!load_briefing_screen(canvas, br, use_fname.data()))
@@ -856,15 +856,14 @@ static int briefing_process_char(grs_canvas &canvas, briefing *const br)
 #endif
 		} else if (ch == 'B') {
 			palette_array_t		temp_palette;
-			int		iff_error;
 			const auto bitmap_name = get_message_name(br->message, ".bbm");
 			br->robot_canv.reset();
 			br->guy_bitmap.reset();
-			iff_error = iff_read_bitmap(&bitmap_name[0], br->guy_bitmap, &temp_palette);
+			const auto iff_error{iff_read_bitmap(&bitmap_name[0], br->guy_bitmap, &temp_palette)};
+			assert(iff_error == iff_status_code::no_error);
 #if defined(DXX_BUILD_DESCENT_II)
 			gr_remap_bitmap_good( br->guy_bitmap, temp_palette, -1, -1 );
 #endif
-			Assert(iff_error == IFF_NO_ERROR);
 			(void)iff_error;
 
 			br->prev_ch = 10;
@@ -991,7 +990,7 @@ static int briefing_process_char(grs_canvas &canvas, briefing *const br)
 			br->text_x = br->screen->text_ulx;
 			if (br->text_y > br->screen->text_uly + br->screen->text_height) {
 #if defined(DXX_BUILD_DESCENT_I)
-				const descent_hog_size size{PHYSFSX_fsize("descent.hog")};
+				const descent_hog_size size{PHYSFSX_fsize(descent_hog_basename)};
 				auto &bs = get_d1_briefing_screens(size)[br->cur_screen];
 #elif defined(DXX_BUILD_DESCENT_II)
 				auto &bs = Briefing_screens[br->cur_screen];
@@ -1325,7 +1324,7 @@ static void free_briefing_screen(briefing *br);
 static int load_briefing_screen(grs_canvas &canvas, briefing *const br, const char *const fname)
 {
 #if defined(DXX_BUILD_DESCENT_I)
-	const descent_hog_size descent_hog_size{PHYSFSX_fsize("descent.hog")};
+	const descent_hog_size descent_hog_size{PHYSFSX_fsize(descent_hog_basename)};
 	char forigin[PATH_MAX];
 	decltype(br->background_name) fname2a;
 
@@ -1354,7 +1353,7 @@ static int load_briefing_screen(grs_canvas &canvas, briefing *const br, const ch
 		if (len_fname2 + sizeof(hires_pcx) < fname2a.size())
 		{
 			strcpy(ptr, hires_pcx);
-			if (!PHYSFSX_exists(fname2a.data(), 1))
+			if (!PHYSFSX_exists_ignorecase(fname2a.data()))
 				snprintf(fname2a.data(), fname2a.size(), "%s", fname);
 		}
 	}
@@ -1452,7 +1451,7 @@ static void free_briefing_screen(briefing *br)
 static int new_briefing_screen(grs_canvas &canvas, briefing *br, int first)
 {
 	br->new_screen = 0;
-	const descent_hog_size descent_hog_size{PHYSFSX_fsize("descent.hog")};
+	const descent_hog_size descent_hog_size{PHYSFSX_fsize(descent_hog_basename)};
 	const auto num_d1_briefing_screens = (
 		(descent_hog_size == descent_hog_size::pc_shareware_v14 || descent_hog_size == descent_hog_size::pc_shareware_v10)
 		? std::size(D1_Briefing_screens_share)
@@ -1544,7 +1543,7 @@ static int new_briefing_screen(grs_canvas &canvas, briefing *br, int first)
 	br->prev_ch = -1;
 
 #if defined(DXX_BUILD_DESCENT_II)
-	if (songs_is_playing() == -1 && !br->hum_channel)
+	if (songs_is_playing() == song_number::None && !br->hum_channel)
 		br->hum_channel.reset(digi_start_sound(digi_xlat_sound(SOUND_BRIEFING_HUM), F1_0/2, sound_pan{0x7fff}, 1, -1, -1, sound_object_none));
 #endif
 
@@ -1723,8 +1722,8 @@ void do_briefing_screens(const d_fname &filename, int level_num)
 	else
 #endif
 	{
-		if ((songs_is_playing() != SONG_BRIEFING) && (songs_is_playing() != SONG_ENDGAME))
-			songs_play_song( SONG_BRIEFING, 1 );
+		if (const auto s{songs_is_playing()}; s != song_number::briefing && s != song_number::endgame)
+			songs_play_song(song_number::briefing, 1);
 	}
 
 #if defined(DXX_BUILD_DESCENT_I)
@@ -1755,20 +1754,20 @@ void do_end_briefing_screens(const d_fname &filename)
 
 	if (EMULATING_D1)
 	{
-		unsigned song;
+		song_number song;
 		if (d_stricmp(filename, BIMD1_ENDING_FILE_OEM) == 0)
 		{
-			song = SONG_ENDGAME;
+			song = song_number::endgame;
 			level_num_screen = ENDING_LEVEL_NUM_OEMSHARE;
 		}
 		else if (d_stricmp(filename, BIMD1_ENDING_FILE_SHARE) == 0)
 		{
-			song = SONG_BRIEFING;
+			song = song_number::briefing;
 			level_num_screen = ENDING_LEVEL_NUM_OEMSHARE;
 		}
 		else
 		{
-			song = SONG_ENDGAME;
+			song = song_number::endgame;
 			level_num_screen = ENDING_LEVEL_NUM_REGISTER;
 		}
 		songs_play_song(song, 1);
@@ -1776,9 +1775,9 @@ void do_end_briefing_screens(const d_fname &filename)
 #if defined(DXX_BUILD_DESCENT_II)
 	else if (PLAYING_BUILTIN_MISSION)
 	{
-		unsigned song;
-		if ((d_stricmp(filename, BIMD2_ENDING_FILE_OEM) == 0 && (song = SONG_TITLE, true)) ||
-			(d_stricmp(filename, BIMD2_ENDING_FILE_SHARE) == 0 && (song = SONG_ENDGAME, true)))
+		song_number song;
+		if ((d_stricmp(filename, BIMD2_ENDING_FILE_OEM) == 0 && (song = song_number::title, true)) ||
+			(d_stricmp(filename, BIMD2_ENDING_FILE_SHARE) == 0 && (song = song_number::endgame, true)))
 		{
 			songs_play_song(song, 1);
 			level_num_screen = 1;
@@ -1786,7 +1785,7 @@ void do_end_briefing_screens(const d_fname &filename)
 	}
 	else
 	{
-		songs_play_song( SONG_ENDGAME, 1 );
+		songs_play_song(song_number::endgame, 1);
 		level_num_screen = Current_mission->last_level + 1;
 	}
 #endif

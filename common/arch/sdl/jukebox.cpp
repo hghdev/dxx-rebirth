@@ -37,12 +37,9 @@ namespace {
 
 struct m3u_bytes
 {
-	using range_type = std::ranges::subrange<char *>;
-	using ptr_range_type = std::ranges::subrange<char **>;
-	using alloc_type = std::unique_ptr<char *[]>;
-	range_type range{nullptr, nullptr};
-	ptr_range_type ptr_range{nullptr, nullptr};
-	alloc_type alloc;
+	std::ranges::subrange<char *> range;
+	std::ranges::subrange<char **> ptr_range;
+	std::unique_ptr<char *[]> alloc;
 };
 
 class FILE_deleter
@@ -133,7 +130,7 @@ static std::unique_ptr<FILE, FILE_deleter> open_m3u_from_disk(const char *const 
 	std::array<char, PATH_MAX> absbuf;
 	return std::unique_ptr<FILE, FILE_deleter>(fopen(
 	// it's a child of Sharepath, build full path
-		(PHYSFSX_exists(cfgpath, 0) && PHYSFSX_getRealPath(cfgpath, absbuf)
+		(PHYSFS_exists(cfgpath) && PHYSFSX_getRealPath(cfgpath, absbuf)
 			? absbuf.data()
 			: cfgpath), "rb")
 	);
@@ -302,10 +299,6 @@ static void jukebox_hook_next()
 	jukebox_play();
 }
 
-}
-
-namespace dsx {
-
 // Play tracks from Jukebox directory. Play track specified in GameCfg.CMLevelMusicTrack[0] and loop depending on CGameCfg.CMLevelMusicPlayOrder
 int jukebox_play()
 {
@@ -353,7 +346,6 @@ int jukebox_play()
 	}
 
 	HUD_init_message(HM_DEFAULT, "%s %s%s", JUKEBOX_HUDMSG_PLAYING, prefix, music_filename);
-
 	return 1;
 }
 

@@ -37,11 +37,8 @@ COPYRIGHT 1993-1998 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "palette.h"
 
 #include "d_enumerate.h"
-#include "d_underlying_value.h"
 #include "dxxsconf.h"
 #include "dsx-ns.h"
-#include "compiler-range_for.h"
-#include "partial_range.h"
 #include <array>
 
 namespace dcx {
@@ -62,7 +59,19 @@ color_palette_index gr_find_closest_color_palette(const int r, const int g, cons
 	unsigned best_value = UINT_MAX;
 	color_palette_index best_index{};
 	// only go to 255, 'cause we dont want to check the transparent color.
-	for (auto &&[candidate_idx, candidate_rgb] : enumerate(unchecked_partial_range(palette, palette.size() - 1)))
+	/* Do not use `palette.size() - 1` here.  That only works in compilers
+	 * which implement P2280R4, due to use of a reference parameter in a
+	 * constant expression, even though the value referenced has no effect on
+	 * the result of `size()`.
+	 *
+	 * <gcc-14 rejects it.
+	 * >=gcc-14 accept it.
+	 * <clang-16: untested
+	 * clang-16: fails
+	 * clang-17: fails
+	 * >clang-17: untested
+	 */
+	for (auto &&[candidate_idx, candidate_rgb] : enumerate(std::span(palette).first<255>()))
 	{
 		const auto candidate_value = get_squared_color_delta(r, g, b, candidate_rgb);
 		if (best_value > candidate_value)
@@ -79,74 +88,91 @@ color_palette_index gr_find_closest_color_palette(const int r, const int g, cons
 
 static unsigned Num_computed_colors;
 
-struct color_record {
-	uint8_t r, g, b;
-	color_palette_index color_num;
-};
-
-uint8_t gr_palette_gamma_param;
-
-}
-
-palette_array_t gr_palette;
-palette_array_t gr_current_pal;
-gft_array1 gr_fade_table;
-
-ubyte gr_palette_gamma = 0;
-
-void copy_bound_palette(palette_array_t &d, const palette_array_t &s)
+void gr_read_palette_file_bytes(RAIIPHYSFS_File fp)
 {
-	auto a = [](rgb_t c) {
-		constexpr uint8_t bound{63};
-		c.r = std::min(c.r, bound);
-		c.g = std::min(c.g, bound);
-		c.b = std::min(c.b, bound);
-		return c;
-	};
-	std::transform(s.begin(), s.end(), d.begin(), a);
-}
-
-}
-
-namespace dcx {
-
-namespace {
-
-static void diminish_entry(rgb_t &c)
-{
-	c.r >>= 2;
-	c.g >>= 2;
-	c.b >>= 2; 
-}
-
-}
-
-void diminish_palette(palette_array_t &palette)
-{
-	range_for (rgb_t &c, palette)
-		diminish_entry(c);
-}
-
-void gr_palette_set_gamma( int gamma )
-{
-	if ( gamma < 0 ) gamma = 0;
-        if ( gamma > 16 ) gamma = 16;      //was 8
-
-	if (gr_palette_gamma_param != gamma )	{
-		gr_palette_gamma_param = gamma;
-		gr_palette_gamma = gamma;
-		gr_palette_load( gr_palette );
+	if (const auto fsize{PHYSFS_fileLength(fp)}; unlikely(fsize != 9472))
+	{
+		/* This can only happen if an ill-formed data file is provided. */
+		gr_palette = {};
+		gr_fade_table = {};
+		return;
 	}
+	PHYSFSX_readBytes(fp, gr_palette, sizeof(gr_palette[0]) * gr_palette.size());
+	PHYSFSX_readBytes(fp, gr_fade_table, 256*34);
 }
 
-int gr_palette_get_gamma()
+void gr_read_palette_file(RAIIPHYSFS_File fp)
 {
-	return gr_palette_gamma_param;
+	Num_computed_colors = 0;	//	Flush palette cache.
+	gr_read_palette_file_bytes(std::move(fp));
+
+	// This is the TRANSPARENCY COLOR
+	for (auto &i : gr_fade_table)
+		i[255] = 255;
+}
+
 }
 
 }
 
 namespace dsx {
+
+namespace {
+
+RAIIPHYSFS_File gr_open_palette_file(const char *const filename)
+{
+	if (auto [fp_requested_palette, physfserr_requested_palette]{PHYSFSX_openReadBuffered(filename)}; fp_requested_palette)
+	{
+		/* gcc interprets `return fp_requested_palette;` to move
+		 * `fp_requested_palette` to the caller.
+		 *
+		 * clang interprets `return fp_requested_palette;` to copy
+		 * `fp_requested_palette` to the caller, then errors out because the
+		 * copy constructor is inaccessible.
+		 *
+		 * Use an explicit `std::move` to cause clang to use the move
+		 * constructor.  From inspection, gcc generates the same code with an
+		 * explicit `std::move` as with an implicit move, so this is not a
+		 * pessimizing move.  However, for future proofing, only call
+		 * `std::move` when using clang.
+		 *
+		 * clang version results:
+		 * <clang-16: untested
+		 * clang-16: fails
+		 * clang-17: fails
+		 * >clang-17: untested
+		 */
+		return
+#ifdef __clang__
+			std::move
+#endif
+			(fp_requested_palette);
+	}
+	else
+	{
+#if defined(DXX_BUILD_DESCENT_I)
+		Error("Failed to open palette file <%s>: %s", filename, PHYSFS_getErrorByCode(physfserr_requested_palette));
+#elif defined(DXX_BUILD_DESCENT_II)
+	// the following is a hack to enable the loading of d2 levels
+	// even if only the d2 mac shareware datafiles are present.
+	// However, if the pig file is present but the palette file isn't,
+	// the textures in the level will look wierd...
+		static char default_level_palette[]{DEFAULT_LEVEL_PALETTE};
+		if (auto [fp_fallback_default_palette, physfserr_fallback_default_palette]{PHYSFSX_openReadBuffered_updateCase(default_level_palette)}; fp_fallback_default_palette)
+		{
+			return
+#ifdef __clang__
+				std::move
+#endif
+				(fp_fallback_default_palette);
+		}
+		else
+			Error("Failed to open both palette file <%s> and default palette file <" DEFAULT_LEVEL_PALETTE ">: (\"%s\", \"%s\")", filename, PHYSFS_getErrorByCode(physfserr_requested_palette), PHYSFS_getErrorByCode(physfserr_fallback_default_palette));
+#endif
+	}
+}
+
+}
 
 #if defined(DXX_BUILD_DESCENT_II)
 void gr_copy_palette(palette_array_t &gr_palette, const palette_array_t &pal)
@@ -159,38 +185,7 @@ void gr_copy_palette(palette_array_t &gr_palette, const palette_array_t &pal)
 
 void gr_use_palette_table(const char * filename )
 {
-	int fsize;
-
-	auto &&[fp, physfserr] = PHYSFSX_openReadBuffered(filename);
-	if (!fp)
-	{
-#if defined(DXX_BUILD_DESCENT_I)
-		Error("Failed to open palette file <%s>: %s", filename, PHYSFS_getErrorByCode(physfserr));
-#elif defined(DXX_BUILD_DESCENT_II)
-	// the following is a hack to enable the loading of d2 levels
-	// even if only the d2 mac shareware datafiles are present.
-	// However, if the pig file is present but the palette file isn't,
-	// the textures in the level will look wierd...
-		auto &&[fp2, physfserr2] = PHYSFSX_openReadBuffered(DEFAULT_LEVEL_PALETTE);
-		if (!fp)
-			Error("Failed to open both palette file <%s> and default palette file <" DEFAULT_LEVEL_PALETTE ">: (\"%s\", \"%s\")", filename, PHYSFS_getErrorByCode(physfserr), PHYSFS_getErrorByCode(physfserr2));
-		fp = std::move(fp2);
-#endif
-	}
-
-	fsize	= PHYSFS_fileLength( fp );
-	Assert( fsize == 9472 );
-	(void)fsize;
-	PHYSFSX_readBytes(fp, gr_palette, sizeof(gr_palette[0]) * std::size(gr_palette));
-	PHYSFSX_readBytes(fp, gr_fade_table, 256*34);
-	fp.reset();
-
-	// This is the TRANSPARENCY COLOR
-	range_for (auto &i, gr_fade_table)
-		i[255] = 255;
-#if defined(DXX_BUILD_DESCENT_II)
-	Num_computed_colors = 0;	//	Flush palette cache.
-#endif
+	gr_read_palette_file(gr_open_palette_file(filename));
 }
 
 }
@@ -204,21 +199,26 @@ void reset_computed_colors()
 
 color_palette_index gr_find_closest_color(const int r, const int g, const int b)
 {
+	struct color_record {
+		uint8_t r, g, b;
+		color_palette_index color_num;
+	};
 	static std::array<color_record, 32> Computed_colors;
-	const auto num_computed_colors = Num_computed_colors;
+	const auto num_computed_colors{Num_computed_colors};
 	//	If we've already computed this color, return it!
-	for (unsigned i = 0; i < num_computed_colors; ++i)
+	for (auto &&[i, c] : enumerate(std::span(Computed_colors).first(num_computed_colors)))
 	{
-		auto &c = Computed_colors[i];
 		if (r == c.r && g == c.g && b == c.b)
 		{
-			const auto color_num = c.color_num;
+			const auto color_num{c.color_num};
 			if (i)
-			{
-						std::swap(Computed_colors[i-1], c);
-					}
-					return color_num;
-				}
+				/* Move the color toward the beginning of the range, so that
+				 * recently popular colors require fewer steps to find on a
+				 * subsequent call.
+				 */
+				std::swap(Computed_colors[i - 1], c);
+			return color_num;
+		}
 	}
 //	Add a computed color to list of computed colors in Computed_colors.
 //	If list wasn't full already, increment Num_computed_colors.
@@ -231,16 +231,6 @@ color_palette_index gr_find_closest_color(const int r, const int g, const int b)
 	cc.g = g;
 	cc.b = b;
 	return cc.color_num = gr_find_closest_color_palette(r, g, b, gr_palette);
-}
-
-color_palette_index gr_find_closest_color_15bpp(const packed_color_r5g5b5 rgb)
-{
-	const auto urgb = underlying_value(rgb);
-	return gr_find_closest_color(
-		((urgb >> 9) & 62),
-		((urgb >> 4) & 62),
-		((urgb << 1) & 62)
-		);
 }
 
 color_palette_index gr_find_closest_color_current(const int r, const int g, const int b)

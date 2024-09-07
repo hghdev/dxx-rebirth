@@ -50,13 +50,16 @@ namespace dcx {
 
 namespace {
 
+enum class level_song_number : unsigned
+{
+	None = UINT32_MAX
+};
+
 class user_configured_level_songs : std::unique_ptr<bim_song_info[]>
 {
 	using base_type = std::unique_ptr<bim_song_info[]>;
 	std::size_t count{};
 public:
-	using base_type::operator[];
-	using base_type::operator bool;
 	constexpr user_configured_level_songs() = default;
 	explicit user_configured_level_songs(const std::size_t length) :
 		base_type{std::make_unique<bim_song_info[]>(length)}, count{length}
@@ -75,6 +78,10 @@ public:
 	{
 		base_type::operator=(std::make_unique<bim_song_info[]>(length));
 		count = {length};
+	}
+	bim_song_info &operator[](const song_number i) const
+	{
+		return base_type::operator[](static_cast<std::size_t>(i));
 	}
 	user_configured_level_songs &operator=(user_configured_level_songs &&) = default;
 	void operator=(std::vector<bim_song_info> &&v);
@@ -97,10 +104,15 @@ void user_configured_level_songs::operator=(std::vector<bim_song_info> &&v)
 		return;
 	}
 	resize(v.size());
-	std::move(v.begin(), v.end(), &this->operator[](0u));
+	std::ranges::move(v, this->get());
 }
 
-static int Song_playing = -1; // -1 if no song playing, else the Descent song number
+static song_number build_song_number_from_level_song_number(const level_song_number i)
+{
+	return song_number{underlying_value(i) + underlying_value(song_number::first_level_song)};
+}
+
+static song_number Song_playing{song_number::None}; // song_number::None if no song playing, else the Descent song number
 #if DXX_USE_SDL_REDBOOK_AUDIO
 static int Redbook_playing = 0; // Redbook track num differs from Song_playing. We need this for Redbook repeat hooks.
 #endif
@@ -110,7 +122,10 @@ user_configured_level_songs BIMSecretSongs;
 
 }
 
-#define EXTMUSIC_VOLUME_SCALE	(255)
+song_number songs_is_playing()
+{
+	return Song_playing;
+}
 
 //takes volume in range 0..8
 //NOTE that we do not check what is playing right now (except Redbook) This is because here we don't (want) know WHAT we're playing - let the subfunctions do it (i.e. digi_win32_set_music_volume() knows if a MIDI plays or not)
@@ -134,6 +149,28 @@ void songs_set_volume(int volume)
 }
 
 namespace {
+
+struct deferred_physfs_pathname
+{
+	std::optional<const char *> dirname;
+	const char *const physfs_virtual_path;
+	deferred_physfs_pathname(const char *p) :
+		physfs_virtual_path{p}
+	{
+	}
+	const char *get_dirname();
+};
+
+const char *deferred_physfs_pathname::get_dirname()
+{
+	if (!dirname)
+	{
+		const auto r{PHYSFS_getRealDir(physfs_virtual_path)};
+		dirname = r;
+		return r;
+	}
+	return *dirname;
+}
 
 static bool is_valid_song_extension(const std::ranges::subrange<std::span<char>::iterator> extension)
 {
@@ -190,7 +227,7 @@ static inline void assign_builtin_song(bim_song_info &song, const char (&str)[N]
 	std::ranges::copy(str, std::ranges::begin(song.filename));
 }
 
-static void add_song(std::vector<bim_song_info> &songs, const std::ranges::subrange<std::span<char>::iterator> entry_input)
+static void add_song(deferred_physfs_pathname &pathname, const unsigned lineno, std::vector<bim_song_info> &songs, const std::ranges::subrange<std::span<char>::iterator> entry_input)
 {
 	/* Some versions of `descent.sng` are not a simple list of songs, but
 	 * instead have a song, whitespace, and then other text on the line.  The
@@ -203,21 +240,45 @@ static void add_song(std::vector<bim_song_info> &songs, const std::ranges::subra
 		entry_input.begin(),
 		std::ranges::find_if(entry_input, [](const char c) { return std::isspace(static_cast<unsigned>(c)); })
 	};
-	if (input.size() >= std::tuple_size<decltype(bim_song_info::filename)>::value)
+	static constexpr std::size_t maximum_song_filename_characters_to_print{20 /* arbitrary cap to balance full output versus flooding the user's terminal */};
+	const auto clamp_filename_characters_count{[](const std::size_t actual_size) -> int {
+		return static_cast<int>(std::min(actual_size, maximum_song_filename_characters_to_print));
+	}};
+	const auto get_filename_truncation_hint_text{[](const std::size_t actual_size) {
+		return actual_size > maximum_song_filename_characters_to_print ? " (truncated)" : "";
+	}};
+	const std::size_t input_size{input.size()};
+	if (const std::size_t limit{std::tuple_size<decltype(bim_song_info::filename)>::value - 1}; input_size > limit)
+	{
 		/* Drop excessively long filenames. */
+		con_printf(CON_NORMAL, "warning: song file \"%s\"/\"%s\":%u: ignoring excessively long filename; maximum allowed length is %" DXX_PRI_size_type ", but found %" DXX_PRI_size_type " (\"%.*s\"%s)", pathname.get_dirname(), pathname.physfs_virtual_path, lineno, limit, input_size, clamp_filename_characters_count(input_size), input.data(), get_filename_truncation_hint_text(input_size));
 		return;
+	}
 	auto &&reverse_input{std::ranges::views::reverse(input)};
 	if (const auto &&ri_dot{std::ranges::find(reverse_input, '.')}; ri_dot == reverse_input.end())
+	{
 		/* Drop filenames that lack a dot. */
+		con_printf(CON_NORMAL, "warning: song file \"%s\"/\"%s\":%u: ignoring filename with no dot (\"%.*s\"%s[%" DXX_PRI_size_type "])", pathname.get_dirname(), pathname.physfs_virtual_path, lineno, clamp_filename_characters_count(input_size), input.data(), get_filename_truncation_hint_text(input_size), input_size);
 		return;
+	}
 	/* Due to `std::reverse_iterator` rules, `reverse_iterator::operator*()`
 	 * returns `*std::prev(reverse_iterator::base())`, so `find` returns an
 	 * iterator one forward of the '.'.  Therefore, `.base()` points to the
 	 * first character in the extension, not to the dot.
 	 */
-	else if (!is_valid_song_extension({ri_dot.base(), input.end()}))
+	else if (const std::ranges::subrange extension{ri_dot.base(), input.end()}; !is_valid_song_extension(extension))
+	{
 		/* Drop filenames that lack a valid song extension. */
+#if DXX_USE_SDLMIXER
+#define DXX_ADD_SONG_EXTENSION_HINT	"s: " SONG_EXT_MID ", " SONG_EXT_OGG ", " SONG_EXT_FLAC ", " SONG_EXT_MP3 ", "
+#else
+#define DXX_ADD_SONG_EXTENSION_HINT	": "
+#endif
+		const std::size_t extension_size{extension.size()};
+		con_printf(CON_NORMAL, "warning: song file \"%s\"/\"%s\":%u: ignoring filename with unacceptable filename extension (\"%.*s\"%s[%" DXX_PRI_size_type "]) on filename (\"%.*s\"%s[%" DXX_PRI_size_type "]); acceptable value" DXX_ADD_SONG_EXTENSION_HINT SONG_EXT_HMP, pathname.get_dirname(), pathname.physfs_virtual_path, lineno, clamp_filename_characters_count(extension_size), extension.data(), get_filename_truncation_hint_text(extension_size), extension_size, clamp_filename_characters_count(input_size), input.data(), get_filename_truncation_hint_text(input_size), input_size);
+#undef DXX_ADD_SONG_EXTENSION_HINT
 		return;
+	}
 	/* The input is not a `bim_song_info`, so a direct use of
 	 * `emplace_back(input)` is not well-formed.
 	 *
@@ -243,13 +304,21 @@ static void add_song(std::vector<bim_song_info> &songs, const std::ranges::subra
 			return r;
 		}
 	};
-	songs.emplace_back(emplace_subrange{input});
+	auto &e{songs.emplace_back(emplace_subrange{input})};
+	assert(!e.filename.back());
+	/* Check verbosity before preparing arguments, so that the dirname is not
+	 * computed if the con_printf call will not use it.
+	 */
+	if (CON_VERBOSE <= CGameArg.DbgVerbose)
+		con_printf(CON_VERBOSE, "note: song file \"%s\"/\"%s\":%u: adding filename \"%s\"", pathname.get_dirname(), pathname.physfs_virtual_path, lineno, e.filename.data());
 }
 
 }
+
 }
 
 namespace dsx {
+
 namespace {
 
 // Set up everything for our music
@@ -261,14 +330,12 @@ static void songs_init()
 	BIMSongs.reset();
 	BIMSecretSongs.reset();
 
-	int canUseExtensions = 0;
 	// try dxx-r.sng - a songfile specifically for dxx which level authors CAN use (dxx does not care if descent.sng contains MP3/OGG/etc. as well) besides the normal descent.sng containing files other versions of the game cannot play. this way a mission can contain a DOS-Descent compatible OST (hmp files) as well as a OST using MP3, OGG, etc.
 	auto fp = PHYSFSX_openReadBuffered("dxx-r.sng").first;
 
+	const bool canUseExtensions{!!fp};	// can use extensions ONLY if dxx-r.sng
 	if (!fp) // try to open regular descent.sng
 		fp = PHYSFSX_openReadBuffered("descent.sng").first;
-	else
-		canUseExtensions = 1; // can use extensions ONLY if dxx-r.sng
 
 	if (!fp) // No descent.sng available. Define a default song-set
 	{
@@ -276,19 +343,24 @@ static void songs_init()
 
 		user_configured_level_songs builtin_songs{predef};
 
-		assign_builtin_song(builtin_songs[SONG_TITLE], "descent.hmp");
-		assign_builtin_song(builtin_songs[SONG_BRIEFING], "briefing.hmp");
-		assign_builtin_song(builtin_songs[SONG_CREDITS], "credits.hmp");
-		assign_builtin_song(builtin_songs[SONG_ENDLEVEL], "endlevel.hmp");	// can't find it? give a warning
-		assign_builtin_song(builtin_songs[SONG_ENDGAME], "endgame.hmp");	// ditto
+		assign_builtin_song(builtin_songs[song_number::title], "descent.hmp");
+		assign_builtin_song(builtin_songs[song_number::briefing], "briefing.hmp");
+		assign_builtin_song(builtin_songs[song_number::credits], "credits.hmp");
+		assign_builtin_song(builtin_songs[song_number::endlevel], "endlevel.hmp");	// can't find it? give a warning
+		assign_builtin_song(builtin_songs[song_number::endgame], "endgame.hmp");	// ditto
 
-		for (const auto i : constant_xrange<unsigned, SONG_FIRST_LEVEL_SONG, predef>{})
+		for (const auto i : constant_xrange<unsigned, 0u, predef>{})
 		{
-			auto &s = builtin_songs[i];
-			const auto d = std::data(s.filename);
-			const auto fs = std::size(s.filename);
-			if (!PHYSFSX_exists((snprintf(d, fs, "game%02u.hmp", i - SONG_FIRST_LEVEL_SONG + 1), d), 1) &&
-				!PHYSFSX_exists((snprintf(d, fs, "game%u.hmp", i - SONG_FIRST_LEVEL_SONG), d), 1))
+			auto &s{builtin_songs[build_song_number_from_level_song_number(level_song_number{i})]};
+			const auto d{s.filename.data()};
+			const auto fs{s.filename.size()};
+			std::snprintf(d, fs, "game%02u.hmp", i + 1);
+			if (PHYSFSX_exists_ignorecase(d))
+				continue;
+			std::snprintf(d, fs, "game%u.hmp", i);
+			if (PHYSFSX_exists_ignorecase(d))
+				continue;
+			else
 			{
 				s = {};	// music not available
 				break;
@@ -301,25 +373,26 @@ static void songs_init()
 	}
 	else
 	{
+		const auto use_secret_songs{[](const bool canUseExtensions, const PHYSFSX_fgets_t::result &result) {
+			if (!canUseExtensions)
+				return canUseExtensions;
+			/* If extensions are allowed, check whether this line uses an
+			 * extension directive.
+			 */
+			if (constexpr std::string_view secret_label{"!Rebirth.secret "sv}; result.size() > secret_label.size() &&
+				std::ranges::equal(std::span(result.begin(), secret_label.size()), secret_label))
+				return canUseExtensions;
+			return false;
+		}};
 		std::vector<bim_song_info> main_songs, secret_songs;
+		unsigned lineno{0};
+		deferred_physfs_pathname deferred_pathname{fp.filename};
 		for (PHYSFSX_gets_line_t<81> inputline; const auto result{PHYSFSX_fgets(inputline, fp)};)
 		{
+			++lineno;
 			if (result.empty())
 				continue;
-			{
-				if (canUseExtensions)
-				{
-					const std::string_view secret_label{"!Rebirth.secret "sv};
-					// extension stuffs
-					if (result.size() > secret_label.size() &&
-						std::ranges::equal(std::span(result.begin(), secret_label.size()), secret_label))
-					{
-						add_song(secret_songs, result.next(secret_label.size()));
-						continue;
-					}
-				}
-				add_song(main_songs, result);
-			}
+			add_song(deferred_pathname, lineno, use_secret_songs(canUseExtensions, result) ? secret_songs : main_songs, result);
 		}
 #if defined(DXX_BUILD_DESCENT_I)
 		// HACK: If Descent.hog is patched from 1.0 to 1.5, descent.sng is turncated. So let's patch it up here
@@ -373,7 +446,9 @@ static void songs_init()
 
 	songs_set_volume(CGameCfg.MusicVolume);
 }
+
 }
+
 }
 
 void songs_uninit()
@@ -399,7 +474,7 @@ void songs_stop_all(void)
 	mix_stop_music();
 #endif
 
-	Song_playing = -1;
+	Song_playing = song_number::None;
 }
 
 void songs_pause(void)
@@ -530,11 +605,31 @@ static void redbook_repeat_func()
 static void play_credits_track()
 {
 	pause_game_world_time p;
-	songs_play_song(SONG_CREDITS, 1);
+	songs_play_song(song_number::credits, 1);
 }
 #endif
 #endif
+
+#if DXX_USE_SDL_REDBOOK_AUDIO
+static void play_redbook_track_if_available(const song_number songnum, const int redbook_track, const int num_tracks, const int repeat)
+{
+	if (redbook_track > num_tracks)
+		return;
+#if defined(DXX_BUILD_DESCENT_I)
+	constexpr auto repeat_func{&redbook_repeat_func};
+#elif defined(DXX_BUILD_DESCENT_II)
+	constexpr auto repeat_func{&play_credits_track};
+#endif
+	if (RBAPlayTracks(redbook_track, redbook_track, repeat ? repeat_func : nullptr))
+	{
+		Redbook_playing = redbook_track;
+		Song_playing = songnum;
+	}
 }
+#endif
+
+}
+
 }
 
 // play a filename as music, depending on filename extension.
@@ -571,7 +666,8 @@ int songs_play_file(const char *filename, int repeat, void (*hook_finished_track
 }
 
 namespace dsx {
-int songs_play_song( int songnum, int repeat )
+
+void songs_play_song(const song_number songnum, const int repeat)
 {
 	songs_init();
 
@@ -579,14 +675,14 @@ int songs_play_song( int songnum, int repeat )
 	{
 		case music_type::Builtin:
 		{
-			if (!BIMSongs)
+			if (underlying_value(songnum) >= BIMSongs.size())
 				break;
-			// EXCEPTION: If SONG_ENDLEVEL is not available, continue playing level song.
+			// EXCEPTION: If song_number::endlevel is not available, continue playing level song.
 			auto &s = BIMSongs[songnum];
-			if (Song_playing >= SONG_FIRST_LEVEL_SONG && songnum == SONG_ENDLEVEL && !PHYSFSX_exists(std::data(s.filename), 1))
-				return Song_playing;
+			if (songnum == song_number::endlevel && Song_playing >= song_number::first_level_song && !PHYSFSX_exists_ignorecase(s.filename.data()))
+				return;
 
-			Song_playing = -1;
+			Song_playing = song_number::None;
 			if (songs_play_file(std::data(s.filename), repeat, nullptr))
 				Song_playing = songnum;
 			break;
@@ -594,51 +690,31 @@ int songs_play_song( int songnum, int repeat )
 #if DXX_USE_SDL_REDBOOK_AUDIO
 		case music_type::Redbook:
 		{
-			int num_tracks = RBAGetNumberOfTracks();
+			const auto num_tracks{RBAGetNumberOfTracks()};
 
 #if defined(DXX_BUILD_DESCENT_I)
-			Song_playing = -1;
-			if ((songnum < SONG_ENDGAME) && (songnum + 2 <= num_tracks))
+			Song_playing = song_number::None;
+			if (songnum < song_number::endgame)
 			{
-				if (RBAPlayTracks(songnum + 2, songnum + 2, repeat ? redbook_repeat_func : NULL))
-				{
-					Redbook_playing = songnum + 2;
-					Song_playing = songnum;
-				}
+				play_redbook_track_if_available(songnum, underlying_value(songnum) + 2, num_tracks, repeat);
 			}
-			else if ((songnum == SONG_ENDGAME) && (REDBOOK_ENDGAME_TRACK <= num_tracks)) // The endgame track is the last track
+			else if (songnum == song_number::endgame) // The endgame track is the last track
 			{
-				if (RBAPlayTracks(REDBOOK_ENDGAME_TRACK, REDBOOK_ENDGAME_TRACK, repeat ? redbook_repeat_func : NULL))
-				{
-					Redbook_playing = REDBOOK_ENDGAME_TRACK;
-					Song_playing = songnum;
-				}
+				play_redbook_track_if_available(songnum, REDBOOK_ENDGAME_TRACK, num_tracks, repeat);
 			}
-			else if ((songnum > SONG_ENDGAME) && (songnum + 1 <= num_tracks))
+			else if (songnum > song_number::endgame)
 			{
-				if (RBAPlayTracks(songnum + 1, songnum + 1, repeat ? redbook_repeat_func : NULL))
-				{
-					Redbook_playing = songnum + 1;
-					Song_playing = songnum;
-				}
+				play_redbook_track_if_available(songnum, underlying_value(songnum) + 1, num_tracks, repeat);
 			}
 #elif defined(DXX_BUILD_DESCENT_II)
-			//Song_playing = -1;		// keep playing current music if chosen song is unavailable (e.g. SONG_ENDLEVEL)
-			if ((songnum == SONG_TITLE) && (REDBOOK_TITLE_TRACK <= num_tracks))
+			// keep playing current music if chosen song is unavailable (e.g. SONG_ENDLEVEL)
+			if (songnum == song_number::title)
 			{
-				if (RBAPlayTracks(REDBOOK_TITLE_TRACK, REDBOOK_TITLE_TRACK, repeat ? play_credits_track : NULL))
-				{
-					Redbook_playing = REDBOOK_TITLE_TRACK;
-					Song_playing = songnum;
-				}
+				play_redbook_track_if_available(songnum, REDBOOK_TITLE_TRACK, num_tracks, repeat);
 			}
-			else if ((songnum == SONG_CREDITS) && (REDBOOK_CREDITS_TRACK <= num_tracks))
+			else if (songnum == song_number::credits)
 			{
-				if (RBAPlayTracks(REDBOOK_CREDITS_TRACK, REDBOOK_CREDITS_TRACK, repeat ? play_credits_track : NULL))
-				{
-					Redbook_playing = REDBOOK_CREDITS_TRACK;
-					Song_playing = songnum;
-				}
+				play_redbook_track_if_available(songnum, REDBOOK_CREDITS_TRACK, num_tracks, repeat);
 			}
 #endif
 			break;
@@ -647,15 +723,15 @@ int songs_play_song( int songnum, int repeat )
 #if DXX_USE_SDLMIXER
 		case music_type::Custom:
 		{
-			// EXCEPTION: If SONG_ENDLEVEL is undefined, continue playing level song.
-			if (Song_playing >= SONG_FIRST_LEVEL_SONG && songnum == SONG_ENDLEVEL && !CGameCfg.CMMiscMusic[songnum].front())
-				return Song_playing;
+			// EXCEPTION: If song_number::endlevel is undefined, continue playing level song.
+			if (songnum == song_number::endlevel && Song_playing >= song_number::first_level_song && !CGameCfg.CMMiscMusic[songnum].front())
+				return;
 
-			Song_playing = -1;
+			Song_playing = song_number::None;
 #if defined(DXX_BUILD_DESCENT_I)
 			int play = songs_play_file(CGameCfg.CMMiscMusic[songnum].data(), repeat, NULL);
 #elif defined(DXX_BUILD_DESCENT_II)
-			int use_credits_track = (songnum == SONG_TITLE && CGameCfg.OrigTrackOrder);
+			const auto use_credits_track{songnum == song_number::title && CGameCfg.OrigTrackOrder};
 			int play = songs_play_file(CGameCfg.CMMiscMusic[songnum].data(),
 							  // Play the credits track after the title track and loop the credits track if original CD track order was chosen
 							  use_credits_track ? 0 : repeat,
@@ -667,12 +743,11 @@ int songs_play_song( int songnum, int repeat )
 		}
 #endif
 		default:
-			Song_playing = -1;
+			Song_playing = song_number::None;
 			break;
 	}
 
-	return Song_playing;
-}
+	return;
 }
 
 #if DXX_USE_SDL_REDBOOK_AUDIO
@@ -680,48 +755,56 @@ namespace {
 static void redbook_first_song_func()
 {
 	pause_game_world_time p;
-	Song_playing = -1; // Playing Redbook tracks will not modify Song_playing. To repeat we must reset this so songs_play_level_song does not think we want to re-play the same song again.
+	Song_playing = song_number::None; // Playing Redbook tracks will not modify Song_playing. To repeat we must reset this so songs_play_level_song does not think we want to re-play the same song again.
 	songs_play_level_song(1, 0);
 }
 }
 #endif
 
 // play track given by levelnum (depending on the music type and it's playing behaviour) or increment/decrement current track number via offset value
-namespace dsx {
-int songs_play_level_song( int levelnum, int offset )
-{
-	int songnum;
 
+void songs_play_level_song(int levelnum, int offset)
+{
 	Assert( levelnum != 0 );
 
 	songs_init();
-	songnum = (levelnum>0)?(levelnum-1):(-levelnum);
+	const level_song_number level_songnum{(levelnum > 0) ? static_cast<unsigned>(levelnum - 1) : static_cast<unsigned>(-levelnum)};
 
 	switch (CGameCfg.MusicType)
 	{
 		case music_type::Builtin:
 		{
 			if (offset)
-				return Song_playing;
+				return;
 
-			Song_playing = -1;
-			/* count_level_songs excludes songs assigned to non-levels,
-			 * such as SONG_TITLE, SONG_BRIEFING, etc.
-			 */
-			int count_level_songs;
-			if (levelnum < 0 && BIMSecretSongs)
+			Song_playing = song_number::None;
+			if (levelnum < 0)
 			{
 				/* Secret songs are processed separately and do not need
-				 * to exclude non-levels.
+				 * to exclude non-levels.  Secret songs start at offset 0, so a
+				 * test for `size == 0` is sufficient.
 				 */
-				const int secretsongnum = (-levelnum - 1) % BIMSecretSongs.size();
-				if (songs_play_file(std::data(BIMSecretSongs[secretsongnum].filename), 1, nullptr))
-					Song_playing = secretsongnum;
+				if (const auto size{BIMSecretSongs.size()})
+				{
+					const song_number secretsongnum{static_cast<unsigned>((-levelnum - 1) % size)};
+					if (songs_play_file(BIMSecretSongs[secretsongnum].filename.data(), 1, nullptr))
+						Song_playing = secretsongnum;
+				}
+				break;
 			}
-			else if (BIMSongs && (count_level_songs = BIMSongs.size() - SONG_FIRST_LEVEL_SONG) > 0)
+			/* Level songs start at offset `song_number::first_level_song`, so
+			 * require that the song list contain more than that many entries.
+			 * A list with at most `song_number::first_level_song` entries only
+			 * has non-level songs, so nothing can be played for level songs.
+			 */
+			if (const auto size{BIMSongs.size()}; size > static_cast<std::size_t>(song_number::first_level_song))
 			{
-				songnum = SONG_FIRST_LEVEL_SONG + (songnum % count_level_songs);
-				if (songs_play_file(std::data(BIMSongs[songnum].filename), 1, nullptr))
+				/* Compute `count_level_songs` to exclude songs assigned to
+				 * non-levels, such as title, briefing, etc.
+				 */
+				const auto count_level_songs{size - static_cast<std::size_t>(song_number::first_level_song)};
+				const song_number songnum{build_song_number_from_level_song_number(static_cast<level_song_number>(underlying_value(level_songnum) % count_level_songs))};
+				if (songs_play_file(BIMSongs[songnum].filename.data(), 1, nullptr))
 					Song_playing = songnum;
 			}
 			break;
@@ -729,21 +812,35 @@ int songs_play_level_song( int levelnum, int offset )
 #if DXX_USE_SDL_REDBOOK_AUDIO
 		case music_type::Redbook:
 		{
-			int n_tracks = RBAGetNumberOfTracks();
+			const auto n_tracks{RBAGetNumberOfTracks()};
 			int tracknum;
+			const song_number songnum{build_song_number_from_level_song_number(level_songnum)};
 
 			if (!offset)
 			{
 				// we have just been told to play the same as we do already -> ignore
-				if (Song_playing >= SONG_FIRST_LEVEL_SONG && songnum + SONG_FIRST_LEVEL_SONG == Song_playing)
-					return Song_playing;
+				if (Song_playing >= song_number::first_level_song && songnum == Song_playing)
+					return;
 
 #if defined(DXX_BUILD_DESCENT_I)
-				int bn_tracks = n_tracks;
+				const int bn_tracks{n_tracks};
 #elif defined(DXX_BUILD_DESCENT_II)
-				int bn_tracks = n_tracks + 1;
+				const int bn_tracks{n_tracks + 1};
 #endif
-				tracknum = REDBOOK_FIRST_LEVEL_TRACK + ((bn_tracks<=REDBOOK_FIRST_LEVEL_TRACK) ? 0 : (songnum % (bn_tracks-REDBOOK_FIRST_LEVEL_TRACK)));
+				if (bn_tracks < REDBOOK_FIRST_LEVEL_TRACK)
+					/* If there are insufficient tracks to have any level songs, break */
+					break;
+				tracknum = REDBOOK_FIRST_LEVEL_TRACK + (
+					(bn_tracks <= REDBOOK_FIRST_LEVEL_TRACK)
+					/* If there is exactly one level track, pick level track 0.
+					 */
+					? 0
+					/* Otherwise, pick the appropriate song, and wrap back to
+					 * the start if there are too few tracks to give each level
+					 * a unique song.
+					 */
+					: (underlying_value(level_songnum) % (bn_tracks - REDBOOK_FIRST_LEVEL_TRACK))
+				);
 			}
 			else
 			{
@@ -754,18 +851,18 @@ int songs_play_level_song( int levelnum, int offset )
 					tracknum = REDBOOK_FIRST_LEVEL_TRACK + (tracknum - n_tracks) - 1;
 			}
 
-			Song_playing = -1;
+			Song_playing = song_number::None;
 			if (RBAEnabled() && (tracknum <= n_tracks))
 			{
 #if defined(DXX_BUILD_DESCENT_I)
-				int have_cd = songs_have_cd();
-				int play = RBAPlayTracks(tracknum, !have_cd?n_tracks:tracknum, have_cd ? redbook_repeat_func : redbook_first_song_func);
+				const auto have_cd{songs_have_cd()};
+				const auto play{RBAPlayTracks(tracknum, !have_cd ? n_tracks : tracknum, have_cd ? redbook_repeat_func : redbook_first_song_func)};
 #elif defined(DXX_BUILD_DESCENT_II)
-				int play = RBAPlayTracks(tracknum, n_tracks, redbook_first_song_func);
+				const auto play{RBAPlayTracks(tracknum, n_tracks, redbook_first_song_func)};
 #endif
 				if (play)
 				{
-					Song_playing = songnum + SONG_FIRST_LEVEL_SONG;
+					Song_playing = songnum;
 					Redbook_playing = tracknum;
 				}
 			}
@@ -781,20 +878,20 @@ int songs_play_level_song( int levelnum, int offset )
 			{
 				if (CGameCfg.CMLevelMusicPlayOrder == LevelMusicPlayOrder::Continuous)
 				{
-					static int last_songnum = -1;
+					static level_song_number last_songnum{level_song_number::None};
 
-					if (Song_playing >= SONG_FIRST_LEVEL_SONG)
-						return Song_playing;
+					if (Song_playing >= song_number::first_level_song)
+						return;
 
 					// As soon as we start a new level, go to next track
-					if (last_songnum != -1 && songnum != last_songnum)
+					if (last_songnum != level_song_number::None && level_songnum != last_songnum)
 						((CGameCfg.CMLevelMusicTrack[0] + 1 >= CGameCfg.CMLevelMusicTrack[1])
 							? CGameCfg.CMLevelMusicTrack[0] = 0
 							: CGameCfg.CMLevelMusicTrack[0]++);
-					last_songnum = songnum;
+					last_songnum = level_songnum;
 				}
 				else if (CGameCfg.CMLevelMusicPlayOrder == LevelMusicPlayOrder::Level)
-					CGameCfg.CMLevelMusicTrack[0] = (songnum % CGameCfg.CMLevelMusicTrack[1]);
+					CGameCfg.CMLevelMusicTrack[0] = underlying_value(level_songnum) % CGameCfg.CMLevelMusicTrack[1];
 			}
 			else
 			{
@@ -805,30 +902,24 @@ int songs_play_level_song( int levelnum, int offset )
 					CGameCfg.CMLevelMusicTrack[0] = CGameCfg.CMLevelMusicTrack[0] - CGameCfg.CMLevelMusicTrack[1];
 			}
 
-			Song_playing = -1;
+			Song_playing = song_number::None;
 			if (jukebox_play())
-				Song_playing = songnum + SONG_FIRST_LEVEL_SONG;
+				Song_playing = build_song_number_from_level_song_number(level_songnum);
 
 			break;
 		}
 #endif
 		default:
-			Song_playing = -1;
+			Song_playing = song_number::None;
 			break;
 	}
 
 #if defined(DXX_BUILD_DESCENT_I)
 	// If we couldn't play the song, most likely because it wasn't specified, play no music.
-	if (Song_playing == -1)
+	if (Song_playing == song_number::None)
 		songs_stop_all();
 #endif
-	return Song_playing;
-}
-}
-
-// check which song is playing, or -1 if not playing anything
-int songs_is_playing()
-{
-	return Song_playing;
+	return;
 }
 
+}

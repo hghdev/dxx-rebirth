@@ -29,16 +29,16 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "player-callsign.h"
 #endif
 
-#ifdef __cplusplus
 #include "mission.h"
 #include "pack.h"
 #include "ntstring.h"
-#include <array>
+#include "d_array.h"
 
 namespace dcx {
 
 enum class opengl_texture_filter : uint8_t;
 enum class music_type : uint8_t;
+enum class song_number : unsigned;
 
 // play-order definitions for custom music
 /* These values are written to a file as integers, so they must not be
@@ -82,7 +82,7 @@ struct CCfg : prohibit_void_ptr<CCfg>
 	std::array<int, 2> CMLevelMusicTrack;
 	ntstring<MISSION_NAME_LEN> LastMission;
 	ntstring<PATH_MAX - 1> CMLevelMusicPath;
-	std::array<ntstring<PATH_MAX - 1>, 5> CMMiscMusic;
+	enumerated_array<ntstring<PATH_MAX - 1>, 5, song_number> CMMiscMusic;
 };
 
 extern struct CCfg CGameCfg;
@@ -106,9 +106,7 @@ extern struct Cfg GameCfg;
 //#define EXT_MUSIC_ON (GameCfg.SndEnableRedbook)		// JukeboxOn shouldn't do anything if it's not supported
 //#endif
 
-extern int ReadConfigFile(void);
-extern int WriteConfigFile(void);
+void ReadConfigFile(CCfg &, Cfg &);
+int WriteConfigFile(const CCfg &, const Cfg &);
 }
-#endif
-
 #endif

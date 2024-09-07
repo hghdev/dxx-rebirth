@@ -96,6 +96,8 @@ std::array<alias, MAX_ALIASES> alias_list;
 pig_hamfile_version Piggy_hamfile_version;
 uint8_t Pigfile_initialized;
 
+char descent_pig_basename[]{D1_PIGFILE};
+
 }
 #endif
 
@@ -131,6 +133,8 @@ GameBitmaps_array GameBitmaps;
 
 #if defined(DXX_BUILD_DESCENT_I)
 #define DBM_FLAG_LARGE 	128		// Flags added onto the flags struct in b
+
+static char default_pigfile_registered[]{DEFAULT_PIGFILE_REGISTERED};
 static
 #endif
 enumerated_array<BitmapFile, MAX_BITMAP_FILES, bitmap_index> AllBitmaps;
@@ -233,9 +237,6 @@ static void write_int(int i,PHYSFS_File *file);
 
 namespace dcx {
 
-digi_sound bogus_sound;
-unsigned Num_sound_files;
-
 namespace {
 
 struct BitmapNameFromHeader
@@ -281,13 +282,16 @@ static DiskSoundHeader DiskSoundHeader_read(const NamedPHYSFS_File fp)
 }
 
 }
+
 }
 
 /*
  * reads a DiskBitmapHeader structure from a PHYSFS_File
  */
 namespace dsx {
+
 namespace {
+
 static DiskBitmapHeader DiskBitmapHeader_read(const NamedPHYSFS_File fp)
 {
 	DiskBitmapHeader dbh{};
@@ -303,40 +307,26 @@ static DiskBitmapHeader DiskBitmapHeader_read(const NamedPHYSFS_File fp)
 	dbh.offset = PHYSFSX_readInt(fp);
 	return dbh;
 }
-}
 
 #if defined(DXX_BUILD_DESCENT_II)
 /*
  * reads a descent 1 DiskBitmapHeader structure from a PHYSFS_File
  */
-static void DiskBitmapHeader_d1_read(DiskBitmapHeader *dbh, const NamedPHYSFS_File fp)
+static DiskBitmapHeader DiskBitmapHeader_d1_read(const NamedPHYSFS_File fp)
 {
-	PHYSFSX_readBytes(fp, dbh->name, 8);
-	dbh->dflags = PHYSFSX_readByte(fp);
-	dbh->width = PHYSFSX_readByte(fp);
-	dbh->height = PHYSFSX_readByte(fp);
-	dbh->wh_extra = 0;
-	dbh->flags = PHYSFSX_readByte(fp);
-	dbh->avg_color = PHYSFSX_readByte(fp);
-	dbh->offset = PHYSFSX_readInt(fp);
+	DiskBitmapHeader dbh{};
+	PHYSFSX_readBytes(fp, dbh.name, 8);
+	dbh.dflags = PHYSFSX_readByte(fp);
+	dbh.width = PHYSFSX_readByte(fp);
+	dbh.height = PHYSFSX_readByte(fp);
+	dbh.flags = PHYSFSX_readByte(fp);
+	dbh.avg_color = PHYSFSX_readByte(fp);
+	dbh.offset = PHYSFSX_readInt(fp);
+	return dbh;
 }
 #endif
 
 }
-
-void swap_0_255(grs_bitmap &bmp)
-{
-	auto a = [](uint8_t &c) {
-		if (c == 0)
-			c = 255;
-		else if (c == 255)
-			c = 0;
-	};
-	auto d = bmp.get_bitmap_data();
-	std::for_each(d, d + (bmp.bm_h * bmp.bm_w), a);
-}
-
-namespace dsx {
 
 bitmap_index piggy_register_bitmap(grs_bitmap &bmp, const std::span<const char> name, const int in_file)
 {
@@ -437,7 +427,9 @@ int piggy_find_sound(const std::span<const char> name)
 }
 
 namespace dsx {
+
 namespace {
+
 static void piggy_close_file()
 {
 	if (Piggy_fp)
@@ -456,7 +448,6 @@ properties_init_result properties_init(d_level_shared_robot_info_state &LevelSha
 	int sbytes = 0;
 	int N_sounds;
 	int size;
-	int pigsize;
 	GameSounds = {};
 
 	static_assert(GameBitmapXlat.size() == GameBitmaps.size(), "size mismatch");
@@ -493,37 +484,36 @@ properties_init_result properties_init(d_level_shared_robot_info_state &LevelSha
 		GameBitmapOffset[(bitmap_index{0})] = pig_bitmap_offset::None;
 	}
 	
-	Piggy_fp = PHYSFSX_openReadBuffered(DEFAULT_PIGFILE_REGISTERED).first;
+	Piggy_fp = PHYSFSX_openReadBuffered_updateCase(default_pigfile_registered).first;
 	if (!Piggy_fp)
 	{
-		if (!PHYSFSX_exists("BITMAPS.TBL",1) && !PHYSFSX_exists("BITMAPS.BIN",1))
+		if (!PHYSFS_exists("BITMAPS.TBL") && !PHYSFS_exists("BITMAPS.BIN"))
 			Error("Cannot find " DEFAULT_PIGFILE_REGISTERED " or BITMAPS.TBL");
 		return properties_init_result::use_gamedata_read_tbl;	// need to run gamedata_read_tbl
 	}
 
-	pigsize = PHYSFS_fileLength(Piggy_fp);
 	unsigned Pigdata_start;
-	switch (pigsize) {
-		case D1_SHARE_BIG_PIGSIZE:
-		case D1_SHARE_10_PIGSIZE:
-		case D1_SHARE_PIGSIZE:
+	switch (descent1_pig_size{PHYSFS_fileLength(Piggy_fp)}) {
+		case descent1_pig_size::d1_share_big_pigsize:
+		case descent1_pig_size::d1_share_10_pigsize:
+		case descent1_pig_size::d1_share_pigsize:
 			PCSharePig = 1;
 			Pigdata_start = 0;
 			break;
-		case D1_10_BIG_PIGSIZE:
-		case D1_10_PIGSIZE:
+		case descent1_pig_size::d1_10_big_pigsize:
+		case descent1_pig_size::d1_10_pigsize:
 			Pigdata_start = 0;
 			break;
 		default:
 			Warning_puts("Unknown size for " DEFAULT_PIGFILE_REGISTERED);
 			Int3();
 			[[fallthrough]];
-		case D1_MAC_PIGSIZE:
-		case D1_MAC_SHARE_PIGSIZE:
+		case descent1_pig_size::d1_mac_pigsize:
+		case descent1_pig_size::d1_mac_share_pigsize:
 			MacPig = 1;
 			[[fallthrough]];
-		case D1_PIGSIZE:
-		case D1_OEM_PIGSIZE:
+		case descent1_pig_size::d1_pigsize:
+		case descent1_pig_size::d1_oem_pigsize:
 			Pigdata_start = PHYSFSX_readInt(Piggy_fp );
 			break;
 	}
@@ -533,7 +523,7 @@ properties_init_result properties_init(d_level_shared_robot_info_state &LevelSha
 	properties_init_result retval;
 	if (PCSharePig)
 		retval = properties_init_result::shareware;	// run gamedata_read_tbl in shareware mode
-	else if (GameArg.EdiNoBm || (!PHYSFSX_exists("BITMAPS.TBL",1) && !PHYSFSX_exists("BITMAPS.BIN",1)))
+	else if (GameArg.EdiNoBm || (!PHYSFS_exists("BITMAPS.TBL") && !PHYSFS_exists("BITMAPS.BIN")))
 	{
 		properties_read_cmp(LevelSharedRobotInfoState, Vclip, Piggy_fp);	// Note connection to above if!!!
 		range_for (auto &i, GameBitmapXlat)
@@ -872,12 +862,10 @@ void piggy_new_pigfile(const std::span<char, FILENAME_LEN> pigname)
 				auto &bm = read_result.bm;
 				auto &newpal = read_result.palette;
 				const auto nframes = read_result.n_bitmaps;
-				const auto iff_error = read_result.status;
-
-				if (iff_error != IFF_NO_ERROR)  {
+				if (const auto iff_error{read_result.status}; iff_error != iff_status_code::no_error)
+				{
 					Error("File %s - IFF error: %s",abmname,iff_errormsg(iff_error));
 				}
-			
 				for (fnum=0;fnum<nframes; fnum++)       {
 					int SuperX;
 
@@ -917,14 +905,12 @@ void piggy_new_pigfile(const std::span<char, FILENAME_LEN> pigname)
 
 				grs_bitmap n;
 				palette_array_t newpal;
-				int iff_error;
 				char bbmname[FILENAME_LEN];
 				int SuperX;
 
 				snprintf(bbmname, sizeof(bbmname), "%.8s.bbm", abn.data());
-				iff_error = iff_read_bitmap(bbmname, n, &newpal);
-
-				if (iff_error != IFF_NO_ERROR)          {
+				if (const auto iff_error{iff_read_bitmap(bbmname, n, &newpal)}; iff_error != iff_status_code::no_error)
+				{
 					Error("File %s - IFF error: %s",bbmname,iff_errormsg(iff_error));
 				}
 
@@ -1193,7 +1179,7 @@ void piggy_read_sounds(int pc_shareware)
 				return;
 			}
 		}
-		else if (PHYSFSX_fsize(DEFAULT_PIGFILE_REGISTERED) == D1_MAC_SHARE_PIGSIZE)
+		else if (descent1_pig_size{PHYSFSX_fsize(default_pigfile_registered)} == descent1_pig_size::d1_mac_share_pigsize)
 		{
 			con_printf(CON_URGENT,"Warning: Missing Sounds/sounds.array for Mac data files");
 			return;
@@ -1600,16 +1586,7 @@ void piggy_close()
 #endif
 }
 
-}
-
-void remove_char( char * s, char c )
-{
-	char *p = strchr(s,c);
-	if (p) *p = '\0';
-}
-
 #if defined(DXX_BUILD_DESCENT_II)
-namespace dsx {
 namespace {
 
 #if DXX_USE_EDITOR
@@ -1806,12 +1783,12 @@ static int get_d1_colormap(palette_array_t &d1_palette, std::array<color_palette
 static void bitmap_read_d1( grs_bitmap *bitmap, /* read into this bitmap */
                      const NamedPHYSFS_File d1_Piggy_fp, /* read from this file */
                      int bitmap_data_start, /* specific to file */
-                     DiskBitmapHeader *bmh, /* header info for bitmap */
+                     const DiskBitmapHeader *const bmh, /* header info for bitmap */
                      uint8_t **next_bitmap, /* where to write it (if 0, use malloc) */
 					 palette_array_t &d1_palette, /* what palette the bitmap has */
 					 std::array<color_palette_index, 256> &colormap) /* how to translate bitmap's colors */
 {
-	int zsize, pigsize = PHYSFS_fileLength(d1_Piggy_fp);
+	int zsize;
 	uint8_t *data;
 	int width;
 
@@ -1840,9 +1817,12 @@ static void bitmap_read_d1( grs_bitmap *bitmap, /* read into this bitmap */
 
 	PHYSFSX_readBytes(d1_Piggy_fp, data, zsize);
 	gr_set_bitmap_data(*bitmap, data);
-	switch(pigsize) {
-	case D1_MAC_PIGSIZE:
-	case D1_MAC_SHARE_PIGSIZE:
+	switch (descent1_pig_size{PHYSFS_fileLength(d1_Piggy_fp)})
+	{
+		default:
+			break;
+		case descent1_pig_size::d1_mac_pigsize:
+		case descent1_pig_size::d1_mac_share_pigsize:
 		if (bmh->flags & BM_FLAG_RLE)
 			rle_swap_0_255(*bitmap);
 		else
@@ -1890,14 +1870,13 @@ static void bm_read_d1_tmap_nums(const NamedPHYSFS_File d1pig)
 static int get_d1_bm_index(char *filename, const NamedPHYSFS_File d1_pig)
 {
 	int i, N_bitmaps;
-	DiskBitmapHeader bmh;
-	if (const auto p = strchr (filename, '.'))
+	if (const auto p{strchr(filename, '.')})
 		*p = '\0'; // remove extension
 	PHYSFS_seek(d1_pig, 0);
 	N_bitmaps = PHYSFSX_readInt(d1_pig);
 	PHYSFS_seek(d1_pig, 8);
 	for (i = 1; i <= N_bitmaps; i++) {
-		DiskBitmapHeader_d1_read(&bmh, d1_pig);
+		const auto bmh{DiskBitmapHeader_d1_read(d1_pig)};
 		if (!d_strnicmp(bmh.name, filename, 8))
 			return i;
 	}
@@ -1911,7 +1890,6 @@ static void read_d1_tmap_nums_from_hog(const NamedPHYSFS_File d1_pig)
 	int reading_textures = 0;
 	short texture_count = 0;
 	int bitmaps_tbl_is_binary = 0;
-	int i;
 
 	auto &&[bitmaps, physfserr] = PHYSFSX_openReadBuffered("bitmaps.tbl");
 	if (!bitmaps) {
@@ -1936,7 +1914,7 @@ static void read_d1_tmap_nums_from_hog(const NamedPHYSFS_File d1_pig)
 		if (bitmaps_tbl_is_binary)
 			decode_text_line((inputline));
 		else
-			while (inputline[(i=strlen(inputline))-2]=='\\')
+			for (std::size_t i; inputline[(i=strlen(inputline))-2]=='\\';)
 			{
 				if (!PHYSFSX_fgets(inputline, bitmaps, i - 2)) // strip comments
 					break;
@@ -2008,16 +1986,14 @@ static bitmap_index d2_index_for_d1_index(short d1_index)
 #define D1_BITMAPS_SIZE 300000
 void load_d1_bitmap_replacements()
 {
-	DiskBitmapHeader bmh;
 	int pig_data_start, bitmap_header_start, bitmap_data_start;
 	int N_bitmaps;
 	short d1_index;
 	uint8_t * next_bitmap;
 	palette_array_t d1_palette;
 	char *p;
-	int pigsize;
 
-	auto &&[d1_Piggy_fp, physfserr] = PHYSFSX_openReadBuffered(D1_PIGFILE);
+	auto &&[d1_Piggy_fp, physfserr] = PHYSFSX_openReadBuffered(descent_pig_basename);
 #define D1_PIG_LOAD_FAILED "Failed loading " D1_PIGFILE
 	if (!d1_Piggy_fp) {
 		Warning("Failed to open " D1_PIGFILE ": %s", PHYSFS_getErrorByCode(physfserr));
@@ -2031,13 +2007,13 @@ void load_d1_bitmap_replacements()
 	if (get_d1_colormap( d1_palette, colormap ) != 0)
 		Warning_puts("Failed to load Descent 1 color palette");
 
-	pigsize = PHYSFS_fileLength(d1_Piggy_fp);
-	switch (pigsize) {
-	case D1_SHARE_BIG_PIGSIZE:
-	case D1_SHARE_10_PIGSIZE:
-	case D1_SHARE_PIGSIZE:
-	case D1_10_BIG_PIGSIZE:
-	case D1_10_PIGSIZE:
+	switch (descent1_pig_size{PHYSFS_fileLength(d1_Piggy_fp)})
+	{
+		case descent1_pig_size::d1_share_big_pigsize:
+		case descent1_pig_size::d1_share_10_pigsize:
+		case descent1_pig_size::d1_share_pigsize:
+		case descent1_pig_size::d1_10_big_pigsize:
+		case descent1_pig_size::d1_10_pigsize:
 		pig_data_start = 0;
 		// OK, now we need to read d1_tmap_nums by emulating d1's gamedata_read_tbl()
 		read_d1_tmap_nums_from_hog(d1_Piggy_fp);
@@ -2046,10 +2022,10 @@ void load_d1_bitmap_replacements()
 		Warning_puts("Unknown size for " D1_PIGFILE);
 		Int3();
 		[[fallthrough]];
-	case D1_PIGSIZE:
-	case D1_OEM_PIGSIZE:
-	case D1_MAC_PIGSIZE:
-	case D1_MAC_SHARE_PIGSIZE:
+		case descent1_pig_size::d1_pigsize:
+		case descent1_pig_size::d1_oem_pigsize:
+		case descent1_pig_size::d1_mac_pigsize:
+		case descent1_pig_size::d1_mac_share_pigsize:
 		pig_data_start = PHYSFSX_readInt(d1_Piggy_fp );
 		bm_read_d1_tmap_nums(d1_Piggy_fp); //was: bm_read_all_d1(fp);
 		//for (i = 0; i < 1800; i++) GameBitmapXlat[i] = PHYSFSX_readShort(d1_Piggy_fp);
@@ -2080,7 +2056,7 @@ void load_d1_bitmap_replacements()
 		if (d2_index != bitmap_index::None)
 		{
 			PHYSFS_seek(d1_Piggy_fp, bitmap_header_start + (d1_index - 1) * DISKBITMAPHEADER_D1_SIZE);
-			DiskBitmapHeader_d1_read(&bmh, d1_Piggy_fp);
+			const auto bmh{DiskBitmapHeader_d1_read(d1_Piggy_fp)};
 
 			bitmap_read_d1( &GameBitmaps[d2_index], d1_Piggy_fp, bitmap_data_start, &bmh, &next_bitmap, d1_palette, colormap );
 			Assert(next_bitmap - Bitmap_replacement_data.get() < D1_BITMAPS_SIZE);
@@ -2121,8 +2097,7 @@ grs_bitmap *read_extra_bitmap_d1_pig(const std::span<const char> name, grs_bitma
 		int pig_data_start, bitmap_header_start, bitmap_data_start;
 		int N_bitmaps;
 		palette_array_t d1_palette;
-		int pigsize;
-		auto &&[d1_Piggy_fp, physfserr] = PHYSFSX_openReadBuffered(D1_PIGFILE);
+		auto &&[d1_Piggy_fp, physfserr] = PHYSFSX_openReadBuffered(descent_pig_basename);
 		if (!d1_Piggy_fp)
 		{
 			Warning("Failed to open " D1_PIGFILE ": %s", PHYSFS_getErrorByCode(physfserr));
@@ -2133,23 +2108,23 @@ grs_bitmap *read_extra_bitmap_d1_pig(const std::span<const char> name, grs_bitma
 		if (get_d1_colormap( d1_palette, colormap ) != 0)
 			Warning_puts("Failed to load Descent 1 color palette");
 
-		pigsize = PHYSFS_fileLength(d1_Piggy_fp);
-		switch (pigsize) {
-		case D1_SHARE_BIG_PIGSIZE:
-		case D1_SHARE_10_PIGSIZE:
-		case D1_SHARE_PIGSIZE:
-		case D1_10_BIG_PIGSIZE:
-		case D1_10_PIGSIZE:
+		switch (descent1_pig_size{PHYSFS_fileLength(d1_Piggy_fp)})
+		{
+			case descent1_pig_size::d1_share_big_pigsize:
+			case descent1_pig_size::d1_share_10_pigsize:
+			case descent1_pig_size::d1_share_pigsize:
+			case descent1_pig_size::d1_10_big_pigsize:
+			case descent1_pig_size::d1_10_pigsize:
 			pig_data_start = 0;
 			break;
 		default:
 			Warning_puts("Unknown size for " D1_PIGFILE);
 			Int3();
 			[[fallthrough]];
-		case D1_PIGSIZE:
-		case D1_OEM_PIGSIZE:
-		case D1_MAC_PIGSIZE:
-		case D1_MAC_SHARE_PIGSIZE:
+			case descent1_pig_size::d1_pigsize:
+			case descent1_pig_size::d1_oem_pigsize:
+			case descent1_pig_size::d1_mac_pigsize:
+			case descent1_pig_size::d1_mac_share_pigsize:
 			pig_data_start = PHYSFSX_readInt(d1_Piggy_fp );
 
 			break;
@@ -2172,8 +2147,7 @@ grs_bitmap *read_extra_bitmap_d1_pig(const std::span<const char> name, grs_bitma
 				con_printf(CON_DEBUG, "Failed to find bitmap: %s", name.data());
 				return nullptr;
 			}
-			DiskBitmapHeader bmh;
-			DiskBitmapHeader_d1_read(&bmh, d1_Piggy_fp);
+			const auto bmh{DiskBitmapHeader_d1_read(d1_Piggy_fp)};
 			if (!d_strnicmp(bmh.name, name.data(), std::min<std::size_t>(8u, name.size())))
 			{
 				bitmap_read_d1(&n, d1_Piggy_fp, bitmap_data_start, &bmh, 0, d1_palette, colormap);
@@ -2187,11 +2161,8 @@ grs_bitmap *read_extra_bitmap_d1_pig(const std::span<const char> name, grs_bitma
 #endif
 	return &n;
 }
-
-}
 #endif
 
-namespace dcx {
 /*
  * reads a bitmap_index structure from a PHYSFS_File
  */
@@ -2212,4 +2183,5 @@ void bitmap_index_read_n(const NamedPHYSFS_File fp, const std::ranges::subrange<
 		bi = i ? *i : bitmap_index::None;
 	}
 }
+
 }

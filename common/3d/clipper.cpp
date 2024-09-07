@@ -16,20 +16,16 @@
 namespace dcx {
 
 #if !DXX_USE_OGL
-temporary_points_t::temporary_points_t()
-{
-	auto p = &temp_points.front();
-	range_for (auto &f, free_points)
-		f = p++;
-}
+temporary_points_t::temporary_points_t() = default;
 
 namespace {
 
 static g3s_point &get_temp_point(temporary_points_t &t)
 {
-	if (t.free_point_num >= t.free_points.size())
-		throw std::out_of_range("not enough free points");
-	auto &p = *t.free_points[t.free_point_num++];
+	auto &p{t.free_points_used
+		? *t.free_points.at(--t.free_points_used)
+		: t.temp_points.at(t.temporary_points_used++)
+	};
 	p.p3_flags = projection_flag::temp_point;
 	return p;
 }
@@ -40,10 +36,8 @@ void temporary_points_t::free_temp_point(g3s_point &p)
 {
 	if (!(p.p3_flags & projection_flag::temp_point))
 		throw std::invalid_argument("freeing non-temporary point");
-	if (--free_point_num >= free_points.size())
-		throw std::out_of_range("too many free points");
-	free_points[free_point_num] = &p;
 	p.p3_flags &= ~projection_flag::temp_point;
+	free_points.at(free_points_used++) = &p;
 }
 
 namespace {
@@ -59,12 +53,12 @@ static g3s_point &clip_edge(const clipping_code plane_flag, g3s_point *on_pnt, g
 
 	if ((plane_flag & (clipping_code::off_right | clipping_code::off_left)) != clipping_code::None)
 	{
-		a = on_pnt->p3_x;
-		b = off_pnt->p3_x;
+		a = on_pnt->p3_vec.x;
+		b = off_pnt->p3_vec.x;
 	}
 	else {
-		a = on_pnt->p3_y;
-		b = off_pnt->p3_y;
+		a = on_pnt->p3_vec.y;
+		b = off_pnt->p3_vec.y;
 	}
 
 	if ((plane_flag & (clipping_code::off_left | clipping_code::off_bot)) != clipping_code::None)
@@ -73,22 +67,22 @@ static g3s_point &clip_edge(const clipping_code plane_flag, g3s_point *on_pnt, g
 		b = -b;
 	}
 
-	kn = a - on_pnt->p3_z;						//xs-zs
-	kd = kn - b + off_pnt->p3_z;				//xs-zs-xe+ze
+	kn = a - on_pnt->p3_vec.z;						//xs-zs
+	kd = kn - b + off_pnt->p3_vec.z;				//xs-zs-xe+ze
 
 	auto &tmp = get_temp_point(tp);
 
 	psx_ratio = fixdiv( kn, kd );
-	tmp.p3_x = on_pnt->p3_x + fixmul( (off_pnt->p3_x-on_pnt->p3_x), psx_ratio);
-	tmp.p3_y = on_pnt->p3_y + fixmul( (off_pnt->p3_y-on_pnt->p3_y), psx_ratio);
+	tmp.p3_vec.x = on_pnt->p3_vec.x + fixmul( (off_pnt->p3_vec.x-on_pnt->p3_vec.x), psx_ratio);
+	tmp.p3_vec.y = on_pnt->p3_vec.y + fixmul( (off_pnt->p3_vec.y-on_pnt->p3_vec.y), psx_ratio);
 
 	if ((plane_flag & (clipping_code::off_top | clipping_code::off_bot)) != clipping_code::None)
-		tmp.p3_z = tmp.p3_y;
+		tmp.p3_vec.z = tmp.p3_vec.y;
 	else
-		tmp.p3_z = tmp.p3_x;
+		tmp.p3_vec.z = tmp.p3_vec.x;
 
 	if ((plane_flag & (clipping_code::off_left | clipping_code::off_bot)) != clipping_code::None)
-		tmp.p3_z = -tmp.p3_z;
+		tmp.p3_vec.z = -tmp.p3_vec.z;
 
 	if (on_pnt->p3_flags & projection_flag::uvs) {
 // PSX_HACK!!!!
@@ -137,7 +131,7 @@ void clip_line(g3s_point *&p0, g3s_point *&p1, const clipping_code codes_or, tem
 
 namespace {
 
-static int clip_plane(const clipping_code plane_flag, polygon_clip_points &src, polygon_clip_points &dest, int *nv, g3s_codes *const cc, temporary_points_t &tp)
+static int clip_plane(const clipping_code plane_flag, polygon_clip_points &src, polygon_clip_points &dest, std::size_t *const nv, g3s_codes *const cc, temporary_points_t &tp)
 {
 	//copy first two verts to end
 	src[*nv] = src[0];
@@ -185,7 +179,7 @@ static int clip_plane(const clipping_code plane_flag, polygon_clip_points &src, 
 
 }
 
-const polygon_clip_points &clip_polygon(polygon_clip_points &rsrc,polygon_clip_points &rdest,int *nv,g3s_codes *cc, temporary_points_t &tp)
+const polygon_clip_points &clip_polygon(polygon_clip_points &rsrc, polygon_clip_points &rdest, std::size_t *nv, g3s_codes *const cc, temporary_points_t &tp)
 {
 	polygon_clip_points *src = &rsrc, *dest = &rdest;
 	for (uint8_t plane_step = 1; plane_step < 16; plane_step <<= 1)

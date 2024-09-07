@@ -424,7 +424,7 @@ static int MakeNewPlayerFile(int allow_abort)
 		}
 		text.lower();
 		snprintf(filename, sizeof(filename), PLAYER_DIRECTORY_STRING("%s.plr"), name);
-		if (PHYSFSX_exists(filename, 0))
+		if (PHYSFS_exists(filename))
 		{
 			nm_messagebox(menu_title{nullptr}, {TXT_OK}, "%s '%s' %s", TXT_PLAYER, name, TXT_ALREADY_EXISTS);
 			continue;
@@ -485,15 +485,15 @@ static window_event_result player_menu_keycommand( listbox *lb,const d_event &ev
 						delete_player_saved_games( items[citem] );
 						// delete PLX file
 						snprintf(plxfile, sizeof(plxfile), PLAYER_DIRECTORY_STRING("%.8s.plx"), items[citem]);
-						if (PHYSFSX_exists(plxfile,0))
+						if (PHYSFS_exists(plxfile))
 							PHYSFS_delete(plxfile);
 						// delete EFF file
 						snprintf(efffile, sizeof(efffile), PLAYER_DIRECTORY_STRING("%.8s.eff"), items[citem]);
-						if (PHYSFSX_exists(efffile,0))
+						if (PHYSFS_exists(efffile))
 							PHYSFS_delete(efffile);
 						// delete NGP file
 						snprintf(ngpfile, sizeof(ngpfile), PLAYER_DIRECTORY_STRING("%.8s.ngp"), items[citem]);
-						if (PHYSFSX_exists(ngpfile,0))
+						if (PHYSFS_exists(ngpfile))
 							PHYSFS_delete(ngpfile);
 					}
 
@@ -540,7 +540,7 @@ window_event_result pilot_selection_listbox::callback_handler(const d_event &eve
 			if (read_player_file() != EZERO)
 				return window_event_result::handled;		// abort close!
 
-			WriteConfigFile();		// Update lastplr
+			WriteConfigFile(CGameCfg, GameCfg);		// Update lastplr
 			break;
 
 		default:
@@ -780,7 +780,7 @@ window_event_result main_menu::event_handler(const d_event &event)
 					Screen_mode = -1;
 #endif
 					PlayMovie("intro.tex", "intro.mve", play_movie_warn_missing::verbose);
-					songs_play_song(SONG_TITLE,1);
+					songs_play_song(song_number::title, 1);
 					set_screen_mode(SCREEN_MENU);
 				}
 				else
@@ -1808,11 +1808,12 @@ struct reticle_config_menu_items
 		reticle_config_menu_items()
 		{
 			DXX_RETICLE_CONFIG_MENU(ADD);
-			auto i = PlayerCfg.ReticleType;
-#if !DXX_USE_OGL
-			if (i > 1)
-				--i;
-#endif
+			auto i{underlying_value(PlayerCfg.ReticleType)};
+			if constexpr (!DXX_USE_OGL)
+			{
+				if (i > 1)
+					--i;
+			}
 			m[opt_reticle_classic + i].value = 1;
 		}
 	};
@@ -1838,7 +1839,7 @@ window_event_result reticle_config_menu::event_handler(const d_event &event)
 					if (i != opt_reticle_classic)
 						++i;
 #endif
-					PlayerCfg.ReticleType = i - opt_reticle_classic;
+					PlayerCfg.ReticleType = static_cast<reticle_type>(i - opt_reticle_classic);
 					break;
 				}
 			DXX_RETICLE_CONFIG_MENU(READ);
@@ -2085,7 +2086,11 @@ window_event_result graphics_config_menu::event_handler(const d_event &event)
 		{
 			auto &citem = static_cast<const d_change_event &>(event).citem;
 			if (citem == opt_gr_brightness)
-				gr_palette_set_gamma(m[citem].value);
+			{
+				const auto GammaLevel{m[citem].value};
+				CGameCfg.GammaLevel = GammaLevel;
+				gr_palette_set_gamma(GammaLevel);
+			}
 #if DXX_USE_OGL
 			else if (citem == opt_filter_anisotropy && ogl_maxanisotropy <= 1.0 && m[opt_filter_anisotropy].value)
 			{
@@ -2379,7 +2384,7 @@ static int select_file_recursive(const menu_title title, const std::array<char, 
 	std::array<char, PATH_MAX> new_path;
 
 	// Check for a PhysicsFS path first, saves complication!
-	if (strncmp(orig_path, sep, strlen(sep)) && PHYSFSX_exists(orig_path, 0) && PHYSFSX_getRealPath(orig_path, new_path))
+	if (strncmp(orig_path, sep, strlen(sep)) && PHYSFS_exists(orig_path) && PHYSFSX_getRealPath(orig_path, new_path))
 		orig_path = new_path.data();
 
 	try {
@@ -2500,15 +2505,15 @@ namespace {
 	DXX_MENUITEM(VERB, TEXT, "", opt_label_blank4)	\
 	DXX_MENUITEM(VERB, TEXT, "Non-level music:", opt_label_nonlevel_music)	\
 	DXX_MENU_ITEM_BROWSE(VERB, "Main menu", opt_sm_cm_mtype3_file1_b)	\
-	DXX_MENUITEM(VERB, INPUT, CGameCfg.CMMiscMusic[SONG_TITLE], opt_sm_cm_mtype3_file1)	\
+	DXX_MENUITEM(VERB, INPUT, CGameCfg.CMMiscMusic[song_number::title], opt_sm_cm_mtype3_file1)	\
 	DXX_MENU_ITEM_BROWSE(VERB, "Briefing", opt_sm_cm_mtype3_file2_b)	\
-	DXX_MENUITEM(VERB, INPUT, CGameCfg.CMMiscMusic[SONG_BRIEFING], opt_sm_cm_mtype3_file2)	\
+	DXX_MENUITEM(VERB, INPUT, CGameCfg.CMMiscMusic[song_number::briefing], opt_sm_cm_mtype3_file2)	\
 	DXX_MENU_ITEM_BROWSE(VERB, "Credits", opt_sm_cm_mtype3_file3_b)	\
-	DXX_MENUITEM(VERB, INPUT, CGameCfg.CMMiscMusic[SONG_CREDITS], opt_sm_cm_mtype3_file3)	\
+	DXX_MENUITEM(VERB, INPUT, CGameCfg.CMMiscMusic[song_number::credits], opt_sm_cm_mtype3_file3)	\
 	DXX_MENU_ITEM_BROWSE(VERB, "Escape sequence", opt_sm_cm_mtype3_file4_b)	\
-	DXX_MENUITEM(VERB, INPUT, CGameCfg.CMMiscMusic[SONG_ENDLEVEL], opt_sm_cm_mtype3_file4)	\
+	DXX_MENUITEM(VERB, INPUT, CGameCfg.CMMiscMusic[song_number::endlevel], opt_sm_cm_mtype3_file4)	\
 	DXX_MENU_ITEM_BROWSE(VERB, "Game ending", opt_sm_cm_mtype3_file5_b)	\
-	DXX_MENUITEM(VERB, INPUT, CGameCfg.CMMiscMusic[SONG_ENDGAME], opt_sm_cm_mtype3_file5)	\
+	DXX_MENUITEM(VERB, INPUT, CGameCfg.CMMiscMusic[song_number::endgame], opt_sm_cm_mtype3_file5)	\
 
 #else
 #define DXX_SOUND_JUKEBOX_MENU_ITEM(VERB)
@@ -2568,7 +2573,7 @@ struct sound_menu : sound_menu_items, newmenu
 #if DXX_USE_SDLMIXER
 	ntstring<PATH_MAX - 1> &current_music = Game_wind
 		? CGameCfg.CMLevelMusicPath
-		: CGameCfg.CMMiscMusic[SONG_TITLE];
+		: CGameCfg.CMMiscMusic[song_number::title];
 	ntstring<PATH_MAX - 1> old_music = current_music;
 #endif
 	sound_menu(grs_canvas &src) :
@@ -2679,15 +2684,15 @@ window_event_result sound_menu::event_handler(const d_event &event)
 									  CGameCfg.CMLevelMusicPath);	// just copy the absolute path
 			}
 			else if (citem == opt_sm_cm_mtype3_file1_b)
-				SELECT_SONG(menu_title{"Select main menu music" WINDOWS_DRIVE_CHANGE_TEXT}, SONG_TITLE);
+				SELECT_SONG(menu_title{"Select main menu music" WINDOWS_DRIVE_CHANGE_TEXT}, song_number::title);
 			else if (citem == opt_sm_cm_mtype3_file2_b)
-				SELECT_SONG(menu_title{"Select briefing music" WINDOWS_DRIVE_CHANGE_TEXT}, SONG_BRIEFING);
+				SELECT_SONG(menu_title{"Select briefing music" WINDOWS_DRIVE_CHANGE_TEXT}, song_number::briefing);
 			else if (citem == opt_sm_cm_mtype3_file3_b)
-				SELECT_SONG(menu_title{"Select credits music" WINDOWS_DRIVE_CHANGE_TEXT}, SONG_CREDITS);
+				SELECT_SONG(menu_title{"Select credits music" WINDOWS_DRIVE_CHANGE_TEXT}, song_number::credits);
 			else if (citem == opt_sm_cm_mtype3_file4_b)
-				SELECT_SONG(menu_title{"Select escape sequence music" WINDOWS_DRIVE_CHANGE_TEXT}, SONG_ENDLEVEL);
+				SELECT_SONG(menu_title{"Select escape sequence music" WINDOWS_DRIVE_CHANGE_TEXT}, song_number::endlevel);
 			else if (citem == opt_sm_cm_mtype3_file5_b)
-				SELECT_SONG(menu_title{"Select game ending music" WINDOWS_DRIVE_CHANGE_TEXT}, SONG_ENDGAME);
+				SELECT_SONG(menu_title{"Select game ending music" WINDOWS_DRIVE_CHANGE_TEXT}, song_number::endgame);
 #endif
 			return window_event_result::handled;	// stay in menu
 		}
@@ -2699,7 +2704,7 @@ window_event_result sound_menu::event_handler(const d_event &event)
 				if (Game_wind)
 					songs_play_level_song(Current_level_num, 0);
 				else
-					songs_play_song(SONG_TITLE, 1);
+					songs_play_song(song_number::title, 1);
 			}
 #endif
 			break;
@@ -2715,7 +2720,7 @@ window_event_result sound_menu::event_handler(const d_event &event)
 		if (Game_wind)
 			songs_play_level_song( Current_level_num, 0 );
 		else
-			songs_play_song(SONG_TITLE, 1);
+			songs_play_song(song_number::title, 1);
 	}
 	return newmenu::event_handler(event);
 }

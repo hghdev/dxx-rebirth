@@ -286,7 +286,6 @@ namespace {
 static bitmap_index bm_load_sub(const int skip, const char *const filename)
 {
 	palette_array_t newpal;
-	int iff_error;		//reference parm to avoid warning message
 
 	if (skip) {
 		return bitmap_index{};
@@ -308,8 +307,8 @@ static bitmap_index bm_load_sub(const int skip, const char *const filename)
 	}
 
 	grs_bitmap n;
-	iff_error = iff_read_bitmap(filename, n, &newpal);
-	if (iff_error != IFF_NO_ERROR)		{
+	if (const auto iff_error{iff_read_bitmap(filename, n, &newpal)}; iff_error != iff_status_code::no_error)
+	{
 		Error("File <%s> - IFF error: %s, line %d",filename,iff_errormsg(iff_error),linenum);
 	}
 
@@ -362,12 +361,12 @@ static void ab_load(int skip, const char * filename, std::array<bitmap_index, MA
 	}
 	}
 
-	auto read_result = iff_read_animbrush(filename);
+	auto read_result{iff_read_animbrush(filename)};
 	auto &bm = read_result.bm;
 	auto &newpal = read_result.palette;
 	*nframes = read_result.n_bitmaps;
-	const auto iff_error = read_result.status;
-	if (iff_error != IFF_NO_ERROR)	{
+	if (const auto iff_error{read_result.status}; iff_error != iff_status_code::no_error)
+	{
 		Error("File <%s> - IFF error: %s, line %d",filename,iff_errormsg(iff_error),linenum);
 	}
 
@@ -415,7 +414,7 @@ int ds_load(int skip, const char * filename )	{
 	if (i!=255)	{
 		return i;
 	}
-	if (auto cfp = PHYSFSX_openReadBuffered(rawname).first)
+	if (auto cfp{PHYSFSX_openReadBuffered_updateCase(rawname).first})
 	{
 		digi_sound n;
 		n.length	= PHYSFS_fileLength( cfp );
@@ -599,7 +598,6 @@ int gamedata_read_tbl(d_level_shared_robot_info_state &LevelSharedRobotInfoState
 
 	for (PHYSFSX_gets_line_t<LINEBUF_SIZE> inputline; PHYSFSX_fgets(inputline, InfoFile);)
 	{
-		int l;
 		const char *temp_ptr;
 		int skip;
 
@@ -607,7 +605,8 @@ int gamedata_read_tbl(d_level_shared_robot_info_state &LevelSharedRobotInfoState
 		if (have_bin_tbl) {				// is this a binary tbl file
 			decode_text_line (inputline);
 		} else {
-			while (inputline[(l=strlen(inputline))-2]=='\\') {
+			for (std::size_t l; inputline[(l=strlen(inputline))-2]=='\\';)
+			{
 				if (!isspace(inputline[l-3])) {		//if not space before backslash...
 					inputline[l-2] = ' ';				//add one
 					l++;

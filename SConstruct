@@ -17,6 +17,7 @@ import typing
 import os
 import SCons.Util
 import SCons.Script
+from functools import cached_property
 
 # Disable injecting tools into default namespace
 SCons.Defaults.DefaultEnvironment(tools = [])
@@ -1366,7 +1367,7 @@ int main(int argc,char**argv)
 
 	@_custom_test
 	def _check_user_settings_words_need_alignment(self,context):
-		self._result_check_user_setting(context, self.user_settings.words_need_alignment, 'DXX_WORDS_NEED_ALIGNMENT', 'word alignment fixups')
+		self._result_check_user_setting(context, self.user_settings.words_need_alignment, 'word alignment fixups', cpp_defines_with_condition_value=('DXX_WORDS_NEED_ALIGNMENT',))
 
 	@_custom_test
 	def _check_user_settings_opengl(self,context):
@@ -1381,41 +1382,46 @@ int main(int argc,char**argv)
 			"software renderer"
 }''')
 
-	def _result_check_user_setting(self,context,condition,CPPDEFINES,label,int=int,str=str):
-		if isinstance(CPPDEFINES, str):
-			self._define_macro(context, CPPDEFINES, int(condition))
-		elif condition:
-			self.successful_flags['CPPDEFINES'].extend(CPPDEFINES)
+	def _result_check_user_setting(self, context, condition, label, cpp_defines_if_enabled: typing.Optional[tuple[tuple]]=None, cpp_defines_with_condition_value: typing.Optional[tuple[str]]=None, int=int):
+		assert cpp_defines_if_enabled or cpp_defines_with_condition_value
+		if cpp_defines_if_enabled and condition:
+			for d in cpp_defines_if_enabled:
+				assert isinstance(d[0], str), repr(d)
+			self.successful_flags['CPPDEFINES'].extend(cpp_defines_if_enabled)
+		if cpp_defines_with_condition_value:
+			for d in cpp_defines_with_condition_value:
+				assert isinstance(d, str)
+				self._define_macro(context, d, int(condition))
 		context.Result(f'{self.msgprefix}: checking whether to enable {label}...{"yes" if condition else "no"}')
 
 	@_custom_test
 	def _check_user_settings_debug(self,context,_CPPDEFINES=(('NDEBUG',), ('RELEASE',))):
-		self._result_check_user_setting(context, not self.user_settings.debug, _CPPDEFINES, 'release options')
+		self._result_check_user_setting(context, not self.user_settings.debug, 'release options', cpp_defines_if_enabled=_CPPDEFINES)
 
 	@_custom_test
-	def _check_user_settings_memdebug(self,context,_CPPDEFINES=(('DEBUG_MEMORY_ALLOCATIONS',),)):
-		self._result_check_user_setting(context, self.user_settings.memdebug, _CPPDEFINES, 'memory allocation tracking')
+	def _check_user_settings_memdebug(self,context,_CPPDEFINES=('DXX_USE_DEBUG_MEMORY_ALLOCATOR',)):
+		self._result_check_user_setting(context, self.user_settings.memdebug, 'memory allocation tracking', cpp_defines_with_condition_value=_CPPDEFINES)
 
 	@_custom_test
-	def _check_user_settings_editor(self,context,_CPPDEFINES='DXX_USE_EDITOR'):
-		self._result_check_user_setting(context, self.user_settings.editor, _CPPDEFINES, 'level editor')
+	def _check_user_settings_editor(self,context,_CPPDEFINES=('DXX_USE_EDITOR',)):
+		self._result_check_user_setting(context, self.user_settings.editor, 'level editor', cpp_defines_with_condition_value=_CPPDEFINES)
 
 	@_custom_test
-	def _check_user_settings_ipv6(self,context,_CPPDEFINES='DXX_USE_IPv6'):
-		self._result_check_user_setting(context, self.user_settings.ipv6, _CPPDEFINES, 'IPv6 support')
+	def _check_user_settings_ipv6(self,context,_CPPDEFINES=('DXX_USE_IPv6',)):
+		self._result_check_user_setting(context, self.user_settings.ipv6, 'IPv6 support', cpp_defines_with_condition_value=_CPPDEFINES)
 
 	@_custom_test
-	def _check_user_settings_stereo_render(self,context,_CPPDEFINES='DXX_USE_STEREOSCOPIC_RENDER'):
-		self._result_check_user_setting(context, self.user_settings.use_stereo_render, _CPPDEFINES, 'stereoscopic rendering')
+	def _check_user_settings_stereo_render(self,context,_CPPDEFINES=('DXX_USE_STEREOSCOPIC_RENDER',)):
+		self._result_check_user_setting(context, self.user_settings.use_stereo_render, 'stereoscopic rendering', cpp_defines_with_condition_value=_CPPDEFINES)
 
 	@_custom_test
-	def _check_user_settings_udp(self,context,_CPPDEFINES='DXX_USE_UDP'):
-		self._result_check_user_setting(context, self.user_settings.use_udp, _CPPDEFINES, 'multiplayer over UDP')
+	def _check_user_settings_udp(self,context,_CPPDEFINES=('DXX_USE_UDP',)):
+		self._result_check_user_setting(context, self.user_settings.use_udp, 'multiplayer over UDP', cpp_defines_with_condition_value=_CPPDEFINES)
 
 	@_custom_test
-	def _check_user_settings_tracker(self,context,_CPPDEFINES='DXX_USE_TRACKER'):
+	def _check_user_settings_tracker(self,context,_CPPDEFINES=('DXX_USE_TRACKER',)):
 		use_tracker = self.user_settings.use_tracker
-		self._result_check_user_setting(context, use_tracker, _CPPDEFINES, 'UDP game tracker')
+		self._result_check_user_setting(context, use_tracker, 'UDP game tracker', cpp_defines_with_condition_value=_CPPDEFINES)
 
 	@_implicit_test
 	def check_libpng(self,context,
@@ -1531,9 +1537,9 @@ struct d_screenshot
 		self.__defined_macros += f'#define {_CPPDEFINES_WIN32_WINNT[0]} {_CPPDEFINES_WIN32_WINNT[1]}\n'
 
 	@_guarded_test_windows
-	def check_dbghelp_header(self,context,_CPPDEFINES='DXX_ENABLE_WINDOWS_MINIDUMP'):
+	def check_dbghelp_header(self,context,_CPPDEFINES=('DXX_ENABLE_WINDOWS_MINIDUMP',)):
 		windows_minidump = self.user_settings.windows_minidump
-		self._result_check_user_setting(context, windows_minidump, _CPPDEFINES, 'minidump on exception')
+		self._result_check_user_setting(context, windows_minidump, 'minidump on exception', cpp_defines_if_enabled=_CPPDEFINES)
 		if not windows_minidump:
 			return
 		include_dbghelp_header = '''
@@ -2871,30 +2877,6 @@ scons: dylibbundler stderr: {p.err!r}
 
 ConfigureTests.register_preferred_compiler_options()
 
-class cached_property:
-	__slots__ = 'method',
-	def __init__(self,f):
-		self.method = f
-	def __get__(self,instance,cls):
-		# This should never be accessed directly on the class.
-		assert instance is not None
-		method = self.method
-		name = method.__name__
-		# Python will rewrite double-underscore references to the
-		# attribute while processing references inside the class, but
-		# will not rewrite the key used to store the computed value
-		# below, so subsequent accesses will not find the computed value
-		# and will instead call this getter again.  For now, disable
-		# attempts to use double-underscore properties instead of trying
-		# to handle their names correctly.
-		assert not name.startswith('__')
-		d = instance.__dict__
-		# After the first access, Python should find the cached value in
-		# the instance dictionary instead of calling __get__ again.
-		assert name not in d
-		d[name] = r = method(instance)
-		return r
-
 class LazyObjectConstructor:
 	class LazyObjectState:
 		def __init__(self,sources,transform_env=None,StaticObject_hook=None,transform_target=None):
@@ -3579,11 +3561,18 @@ class DXXCommon(LazyObjectConstructor):
 					self.host_platform,
 					os.path.basename(self.CXX) if self.CXX else None,
 				]
-				compiler_flags = '\n'.join((getattr(self, attr) or '').strip() for attr in ['CPPFLAGS', 'CXXFLAGS'])
+				compiler_flags = [(getattr(self, attr) or '').strip() for attr in ('CPPFLAGS', 'CXXFLAGS')]
+				compiler_flags.append(str(not not self.sharepath))
+				compiler_flags = '\n'.join(compiler_flags)
 				if compiler_flags:
-					# Mix in CRC of CXXFLAGS to get reasonable uniqueness
-					# when flags are changed.  A full hash is
-					# unnecessary here.
+					# Mix in CRC of compiler flags to get reasonable uniqueness
+					# when flags are changed.  This allows multiple builds with
+					# varying flags to be built without overwriting each
+					# other's outputs.  A full hash is unnecessary here, since
+					# an accidental collision is unlikely, and the only
+					# negative consequence of such a collision is that the
+					# build will overwrite objects that would need to be built
+					# again later when the flags are switched back.
 					fields.append(f'{(binascii.crc32(compiler_flags.encode())):08x}')
 				if self.pch:
 					fields.append(f'p{self.pch}')
@@ -4493,9 +4482,11 @@ class DXXCommon(LazyObjectConstructor):
 			)
 			del nonblank_builddir
 
-		cxxflags = get_Werror_sequence(user_settings.CXXFLAGS, (
-			'-Wextra',
+		cxxflags = [
+			'-ftabstop=4',
+			'-Wall',
 			'-Wformat=2',
+			'-Wextra',
 			'-Wmissing-braces',
 			'-Wmissing-include-dirs',
 			'-Wuninitialized',
@@ -4504,11 +4495,20 @@ class DXXCommon(LazyObjectConstructor):
 			'-Wcast-qual',
 			'-Wmissing-declarations',
 			'-Wvla',
-			))
-		cxxflags[0:0] = (
-			'-ftabstop=4',
-			'-Wall',
-			)
+			]
+		if self.user_settings.lto:
+			# clang does not support `=N` syntax, so use the bare form `-flto`
+			# for `user_settings.lto=1`.  This allows `lto=1` to do the right
+			# thing for clang users.  gcc effectively treats `-flto` as
+			# `-flto=1`.
+			#
+			# Users who set `user_settings.lto=2` (or higher) need a compiler that
+			# understands the `=N` syntax.  This script makes no attempt to
+			# detect whether the compiler understands that syntax.
+			#
+			# The list of flags is prepended to the compiler options, so a
+			# user-specified CXXFLAGS can override `-flto` later, if needed.
+			cxxflags.append(f'-flto={self.user_settings.lto}' if self.user_settings.lto > 1 else '-flto')
 		env.Prepend(CXXFLAGS = cxxflags)
 		env.Append(
 			CXXFLAGS = ['-funsigned-char'],
@@ -4539,11 +4539,6 @@ class DXXCommon(LazyObjectConstructor):
 			if value is not None:
 				add_flags[flags] = CLVar(value)
 		env.Append(**add_flags)
-		if self.user_settings.lto:
-			env.Append(CXXFLAGS = [
-				# clang does not support =N syntax
-				f'-flto={self.user_settings.lto}' if self.user_settings.lto > 1 else '-flto',
-			])
 
 	@cached_property
 	def platform_settings(self):
@@ -4587,18 +4582,21 @@ class DXXCommon(LazyObjectConstructor):
 		if CHOST:
 			denv = None
 			for cc in chost_aware_tools:
-				value = kw.get(cc)
-				if value is not None:
+				if cc in kw:
 					# If the user set a value, that value is always
 					# used.
 					continue
 				if denv is None:
-					# Lazy load denv.
+					# Lazy load denv, so that its creation can be skipped if
+					# the user set all the required values.
 					denv = Environment(tools = tools)
 				# If the option in the base environment, ignoring both
 				# user_settings and the process environment, matches the
 				# option in the customized environment, then assume that
 				# this is an SCons default, not a user-chosen value.
+				#
+				# Override SCons default values with a CHOST qualified form.
+				# Keep user-chosen values as the user set them.
 				value = denv.get(cc)
 				if value and env.get(cc) == value:
 					env[cc] = f'{CHOST}-{value}'
@@ -4683,6 +4681,7 @@ class DXXArchive(DXXCommon):
 'common/2d/disc.cpp',
 'common/2d/gpixel.cpp',
 'common/2d/line.cpp',
+'common/2d/palette.cpp',
 'common/2d/pixel.cpp',
 'common/2d/rect.cpp',
 'common/2d/rle.cpp',
@@ -4704,6 +4703,7 @@ class DXXArchive(DXXCommon):
 'common/main/cli.cpp',
 'common/main/cmd.cpp',
 'common/main/cvar.cpp',
+'common/main/piggy.cpp',
 'common/maths/fixc.cpp',
 'common/maths/rand.cpp',
 'common/maths/tables.cpp',
@@ -4714,6 +4714,7 @@ class DXXArchive(DXXCommon):
 'common/misc/hmp.cpp',
 'common/misc/ignorecase.cpp',
 'common/misc/physfsrwops.cpp',
+'common/misc/physfsx.cpp',
 'common/misc/strutil.cpp',
 'common/misc/vgrphys.cpp',
 'common/misc/vgwphys.cpp',
@@ -4771,6 +4772,7 @@ class DXXArchive(DXXCommon):
 ))
 	get_objects_arch_sdlmixer = DXXCommon.create_lazy_object_getter((
 'common/arch/sdl/digi_mixer_music.cpp',
+'common/arch/sdl/jukebox.cpp',
 ))
 	class Win32PlatformSettings(DXXCommon.Win32PlatformSettings):
 		__get_platform_objects = LazyObjectConstructor.create_lazy_object_getter((
@@ -4941,7 +4943,6 @@ class DXXProgram(DXXCommon):
 	))
 	get_objects_similar_arch_sdlmixer = DXXCommon.create_lazy_object_states_getter((LazyObjectState(sources=(
 'similar/arch/sdl/digi_mixer.cpp',
-'similar/arch/sdl/jukebox.cpp',
 ),
 		transform_target=_apply_target_name,
 	),
@@ -5169,7 +5170,8 @@ class DXXProgram(DXXCommon):
 			# Patch the exception's arguments instead of using Python exception
 			# chaining.  Using `raise Exception('') from e` causes SCons not to
 			# show the traceback for `e`.
-			e.args = (f'Failed to initialize profile {self._argument_prefix_list!r}: {e.args[0]}',) + e.args[1:]
+			a = e.args or ()
+			e.args = (f'Failed to initialize profile {self._argument_prefix_list!r}{f": {a[0]}" if a else ""}',) + a[1:]
 			raise
 
 	def init(self,substenv):

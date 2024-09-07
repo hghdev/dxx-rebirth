@@ -3355,10 +3355,10 @@ static int newdemo_read_frame_information(int rewrite)
 					break;
 
 				Game_mode = Newdemo_game_mode;
-				if (game_mode_hoard())
+				if (game_mode_hoard(Game_mode))
 					init_hoard_data(Vclip);
 
-				if (game_mode_capture_flag() || game_mode_hoard())
+				if (game_mode_capture_flag(Game_mode) || game_mode_hoard(Game_mode))
 					multi_apply_goal_textures ();
 				Game_mode = GM_NORMAL;
 			}
@@ -4272,7 +4272,7 @@ void newdemo_start_playback(const char * filename)
 		}
 	}
 
-	infile = PHYSFSX_openReadBuffered(filename2).first;
+	infile = PHYSFSX_openReadBuffered_updateCase(filename2).first;
 
 	if (!infile) {
 		return;
@@ -4350,7 +4350,7 @@ int newdemo_swap_endian(const char *filename)
 	else
 		return 0;
 
-	infile = PHYSFSX_openReadBuffered(inpath).first;
+	infile = PHYSFSX_openReadBuffered_updateCase(inpath).first;
 	if (!infile)
 		goto read_error;
 

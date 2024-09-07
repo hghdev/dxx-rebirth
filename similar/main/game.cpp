@@ -969,7 +969,7 @@ void save_screen_shot(int automap_flag)
 #endif
 #endif
 
-	if (!PHYSFSX_exists(SCRNS_DIR,0))
+	if (!PHYSFS_exists(SCRNS_DIR))
 		PHYSFS_mkdir(SCRNS_DIR); //try making directory
 
 	pause_game_world_time p;
@@ -1850,7 +1850,7 @@ window_event_result game_window::event_handler(const d_event &event)
 			if ( Newdemo_state == ND_STATE_PLAYBACK )
 				newdemo_stop_playback();
 
-			songs_play_song( SONG_TITLE, 1 );
+			songs_play_song(song_number::title, 1);
 
 			game_disable_cheats();
 			Game_mode = {};

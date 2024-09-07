@@ -44,21 +44,6 @@
 #include <array>
 #include <memory>
 
-#ifdef DXX_CONSTANT_TRUE
-#define _DXX_PHYSFS_CHECK_SIZE(ELEMENT_SIZE,BUFFER_SIZE)	DXX_CONSTANT_TRUE(std::size_t{ELEMENT_SIZE} > (BUFFER_SIZE))
-#define DXX_PHYSFS_CHECK_READ_SIZE_OBJECT_SIZE(ELEMENT_SIZE,BUFFER_PTR)	\
-	(void)(__builtin_object_size(BUFFER_PTR, 1) != static_cast<size_t>(-1) && _DXX_PHYSFS_CHECK_SIZE(ELEMENT_SIZE, __builtin_object_size(BUFFER_PTR, 1)) && (DXX_ALWAYS_ERROR_FUNCTION("read size exceeds element size"), 0))
-#define DXX_PHYSFS_CHECK_WRITE_SIZE_OBJECT_SIZE(ELEMENT_SIZE,BUFFER_PTR)	\
-	(void)(__builtin_object_size(BUFFER_PTR, 1) != static_cast<size_t>(-1) && _DXX_PHYSFS_CHECK_SIZE(ELEMENT_SIZE, __builtin_object_size(BUFFER_PTR, 1)) && (DXX_ALWAYS_ERROR_FUNCTION("write size exceeds element size"), 0))
-#define DXX_PHYSFS_CHECK_WRITE_ELEMENT_SIZE_CONSTANT(ELEMENT_SIZE,ELEMENT_COUNT)	\
-	((void)(dxx_builtin_constant_p(ELEMENT_SIZE) || dxx_builtin_constant_p(ELEMENT_COUNT) || \
-		(DXX_ALWAYS_ERROR_FUNCTION("array element size is not constant"), 0)))
-#else
-#define DXX_PHYSFS_CHECK_READ_SIZE_OBJECT_SIZE(ELEMENT_SIZE,BUFFER_PTR)	((void)(ELEMENT_SIZE), (void)(BUFFER_PTR))
-#define DXX_PHYSFS_CHECK_WRITE_SIZE_OBJECT_SIZE(ELEMENT_SIZE,BUFFER_PTR)	((void)(ELEMENT_SIZE), (void)(BUFFER_PTR))
-#define DXX_PHYSFS_CHECK_WRITE_ELEMENT_SIZE_CONSTANT(ELEMENT_SIZE,ELEMENT_COUNT)	((void)(ELEMENT_SIZE), (void)(ELEMENT_COUNT))
-#endif
-
 namespace dcx {
 
 template <typename V>
@@ -66,7 +51,10 @@ __attribute_always_inline()
 static inline PHYSFS_sint64 PHYSFSX_check_readBytes(PHYSFS_File *const file, V *const buffer, const PHYSFS_uint64 len)
 {
 	static_assert(std::is_standard_layout<V>::value && std::is_trivial<V>::value, "non-POD value read");
-	DXX_PHYSFS_CHECK_READ_SIZE_OBJECT_SIZE(len, buffer);
+#if defined(DXX_HAVE_BUILTIN_OBJECT_SIZE) && defined(DXX_CONSTANT_TRUE)
+	if (const size_t compiler_determined_buffer_size{__builtin_object_size(buffer, 1)}; compiler_determined_buffer_size != static_cast<size_t>(-1) && DXX_CONSTANT_TRUE(len > compiler_determined_buffer_size))
+		DXX_ALWAYS_ERROR_FUNCTION("read size exceeds element size");
+#endif
 	return {PHYSFS_readBytes(file, buffer, {len})};
 }
 
@@ -76,7 +64,8 @@ static inline PHYSFS_sint64 PHYSFSX_check_readBytes(PHYSFS_File *const file, std
 {
 	static_assert(std::is_standard_layout<V>::value && std::is_trivial<V>::value, "C++ array of non-POD elements read");
 #ifdef DXX_CONSTANT_TRUE
-	(void)(_DXX_PHYSFS_CHECK_SIZE(len, sizeof(V) * std::size(buffer)) && (DXX_ALWAYS_ERROR_FUNCTION("read size exceeds array size"), 0));
+	if (constexpr size_t compiler_determined_buffer_size{sizeof(V) * N}; DXX_CONSTANT_TRUE(len > compiler_determined_buffer_size))
+		DXX_ALWAYS_ERROR_FUNCTION("read size exceeds array size");
 #endif
 	return {PHYSFSX_check_readBytes(file, std::data(buffer), {len})};
 }
@@ -93,7 +82,10 @@ __attribute_always_inline()
 static inline PHYSFS_sint64 PHYSFSX_check_writeBytes(PHYSFS_File *file, const V *const buffer, const PHYSFS_uint64 len)
 {
 	static_assert(std::is_standard_layout<V>::value && std::is_trivial<V>::value, "non-POD value written");
-	DXX_PHYSFS_CHECK_WRITE_SIZE_OBJECT_SIZE(len, buffer);
+#if defined(DXX_HAVE_BUILTIN_OBJECT_SIZE) && defined(DXX_CONSTANT_TRUE)
+	if (const size_t compiler_determined_buffer_size{__builtin_object_size(buffer, 1)}; compiler_determined_buffer_size != static_cast<size_t>(-1) && DXX_CONSTANT_TRUE(len > compiler_determined_buffer_size))
+		DXX_ALWAYS_ERROR_FUNCTION("write size exceeds element size");
+#endif
 	return {PHYSFS_writeBytes(file, buffer, len)};
 }
 
@@ -102,6 +94,10 @@ __attribute_always_inline()
 static inline PHYSFS_sint64 PHYSFSX_check_writeBytes(PHYSFS_File *file, const std::array<V, N> &buffer, const PHYSFS_uint64 len)
 {
 	static_assert(std::is_standard_layout<V>::value && std::is_trivial<V>::value, "C++ array of non-POD elements written");
+#ifdef DXX_CONSTANT_TRUE
+	if (constexpr size_t compiler_determined_buffer_size{sizeof(V) * N}; DXX_CONSTANT_TRUE(len > compiler_determined_buffer_size))
+		DXX_ALWAYS_ERROR_FUNCTION("write size exceeds array size");
+#endif
 	return {PHYSFSX_check_writeBytes(file, buffer.data(), len)};
 }
 
@@ -462,7 +458,7 @@ typedef char file_extension_t[5];
 
 [[nodiscard]]
 __attribute_nonnull()
-int PHYSFSX_checkMatchingExtension(const char *filename, const std::ranges::subrange<const file_extension_t *> range);
+const file_extension_t *PHYSFSX_checkMatchingExtension(const char *filename, const std::ranges::subrange<const file_extension_t *> range);
 
 enum class physfs_search_path : bool
 {
@@ -471,8 +467,15 @@ enum class physfs_search_path : bool
 };
 
 PHYSFS_ErrorCode PHYSFSX_addRelToSearchPath(char *relname, std::array<char, PATH_MAX> &realPath, physfs_search_path);
-void PHYSFSX_removeRelFromSearchPath(const char *relname);
-extern int PHYSFSX_fsize(const char *hogname);
+
+/* Callee may change the case of the characters in the supplied buffer, but
+ * will not make the filename longer or shorter. */
+void PHYSFSX_removeRelFromSearchPath(char *relname);
+[[nodiscard]]
+int PHYSFSX_fsize(char *hogname);
+[[nodiscard]]
+int PHYSFSX_exists_ignorecase(char *filename);
+
 extern void PHYSFSX_listSearchPathContent();
 [[nodiscard]]
 int PHYSFSX_getRealPath(const char *stdPath, std::array<char, PATH_MAX> &realPath);
@@ -522,9 +525,12 @@ RAIIPHYSFS_ComputedPathMount make_PHYSFSX_ComputedPathMount(char *const name, ph
 
 extern int PHYSFSX_rename(const char *oldpath, const char *newpath);
 
-#define PHYSFSX_exists(F,I)	((I) ? PHYSFSX_exists_ignorecase(F) : PHYSFS_exists(F))
-int PHYSFSX_exists_ignorecase(const char *filename);
+[[nodiscard]]
 std::pair<RAIINamedPHYSFS_File, PHYSFS_ErrorCode> PHYSFSX_openReadBuffered(const char *filename);
+
+[[nodiscard]]
+std::pair<RAIINamedPHYSFS_File, PHYSFS_ErrorCode> PHYSFSX_openReadBuffered_updateCase(char *filename);
+
 std::pair<RAIIPHYSFS_File, PHYSFS_ErrorCode> PHYSFSX_openWriteBuffered(const char *filename);
 extern void PHYSFSX_addArchiveContent();
 extern void PHYSFSX_removeArchiveContent();
